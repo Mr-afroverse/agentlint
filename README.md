@@ -39,7 +39,7 @@ Or as a **pre-commit hook** (recommended — runs on every commit, zero maintena
 # .pre-commit-config.yaml
 repos:
   - repo: https://github.com/Mr-afroverse/agentlint
-    rev: v0.1.0
+    rev: v0.1.1
     hooks:
       - id: agentlint
 ```
@@ -205,7 +205,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: Mr-afroverse/agentlint@v0.1.0
+      - uses: Mr-afroverse/agentlint@v0.1.1
 ```
 
 ### Action inputs
@@ -220,7 +220,7 @@ jobs:
 Example — fail the build on warnings:
 
 ```yaml
-- uses: Mr-afroverse/agentlint@v0.1.0
+- uses: Mr-afroverse/agentlint@v0.1.1
   with:
     fail-on-warnings: true
 ```
