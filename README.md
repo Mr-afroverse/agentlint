@@ -22,7 +22,7 @@ None of this gets caught by `markdownlint` or `yamllint`. These are **codebase-a
 ## Quick start
 
 ```bash
-pip install agentlint-cli
+pip install instruction-lint
 cd your-project
 agentlint
 ```
@@ -225,7 +225,7 @@ Options:
 ```bash
 git clone https://github.com/Mr-afroverse/agentlint
 cd agentlint
-pip install -e ".[dev]"
+pip install -e ".[dev]"  # or: pip install instruction-lint
 pytest
 ```
 

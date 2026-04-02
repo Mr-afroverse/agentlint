@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "agentlint-cli"
+name = "instruction-lint"
 version = "0.1.0"
 description = "The ESLint of AI coding assistant instructions — audit, validate, and fix your Copilot skills, Cursor rules, and agent instruction files."
 readme = "README.md"
