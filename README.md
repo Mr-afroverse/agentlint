@@ -1,5 +1,10 @@
 # agentlint
 
+[![CI](https://github.com/Mr-afroverse/agentlint/actions/workflows/ci.yml/badge.svg)](https://github.com/Mr-afroverse/agentlint/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/instruction-lint)](https://pypi.org/project/instruction-lint/)
+[![Python](https://img.shields.io/pypi/pyversions/instruction-lint)](https://pypi.org/project/instruction-lint/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 **The ESLint of AI coding assistant instructions.**
 
 Audit, validate, and keep your GitHub Copilot skills, Cursor rules, and agent instruction files consistent with your actual codebase.
