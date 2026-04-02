@@ -8,6 +8,10 @@ beyond tmp_path. Covers:
   - BUG-01 fix: --adapter cursor on Copilot repo → exit 2 (detect() required)
   - BUG-06 fix: --config with custom filename loads correctly
   - --init: creates / does not overwrite SKILL_HEALTH_CHECK.md
+  - Aider adapter: auto-detect, explicit, rules dir, no-files exit 2
+  - Continue adapter: auto-detect, explicit, rules dir, no-files exit 2
+  - severity_overrides config: re-classifies violation severity before reporting
+  - --format badge: writes agentlint-badge.svg, correct grade colour
   - --format json: valid JSON with correct structure
   - --fail-on-warnings: flag escalates warnings to exit 1
   - --adapter copilot: explicit adapter on matching repo
@@ -320,3 +324,234 @@ def test_cli_format_sarif_clean_run_empty_results(tmp_path: Path):
     result = _RUNNER.invoke(main, ["--format", "sarif", str(tmp_path)])
     data = json.loads(result.output)
     assert data["runs"][0]["results"] == []
+
+
+# ---------------------------------------------------------------------------
+# --watch
+# ---------------------------------------------------------------------------
+
+
+def test_watch_flag_in_help():
+    """--watch appears in the help text."""
+    result = _RUNNER.invoke(main, ["--help"])
+    assert result.exit_code == 0
+    assert "--watch" in result.output
+
+
+def test_watch_no_watchdog_prints_install_hint(tmp_path: Path, monkeypatch):
+    """--watch without watchdog installed exits 1 with an install hint."""
+    _make_clean_copilot_repo(tmp_path)
+
+    import builtins
+    real_import = builtins.__import__
+
+    def _patched(name, *args, **kwargs):
+        if "watchdog" in name:
+            raise ImportError(f"Mocked: no module '{name}'")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", _patched)
+    result = _RUNNER.invoke(main, ["--watch", str(tmp_path)])
+    assert result.exit_code == 1
+    assert "watchdog" in result.output
+
+
+def test_watch_exits_0_when_observer_stops(tmp_path: Path, monkeypatch):
+    """--watch exits 0 and prints watching/stopped messages (observer exits immediately)."""
+    _make_clean_copilot_repo(tmp_path)
+
+    from unittest.mock import MagicMock
+    import watchdog.observers as _wo
+
+    mock_obs = MagicMock()
+    mock_obs.is_alive.return_value = False  # while-loop exits before first sleep
+    monkeypatch.setattr(_wo, "Observer", lambda: mock_obs)
+
+    result = _RUNNER.invoke(main, ["--watch", str(tmp_path)])
+    assert result.exit_code == 0
+    assert "Watching" in result.output
+    assert "Watch stopped" in result.output
+
+
+# ---------------------------------------------------------------------------
+# Aider adapter
+# ---------------------------------------------------------------------------
+
+
+def _make_clean_aider_repo(root: Path) -> None:
+    """Minimal Aider repo with a .aider.conf.yml config file."""
+    (root / ".aider.conf.yml").write_text(
+        "# Aider configuration\nmodel: gpt-4o\n",
+        encoding="utf-8",
+    )
+
+
+def _make_aider_with_rules_dir(root: Path) -> None:
+    """Aider repo with .aider/rules/*.md convention files."""
+    rules_dir = root / ".aider" / "rules"
+    rules_dir.mkdir(parents=True)
+    (rules_dir / "conventions.md").write_text(
+        "# Coding conventions\nAlways write tests first.\n",
+        encoding="utf-8",
+    )
+
+
+def test_cli_aider_auto_detect(tmp_path: Path):
+    """Auto mode picks up .aider.conf.yml without --adapter flag."""
+    _make_clean_aider_repo(tmp_path)
+    result = _RUNNER.invoke(main, [str(tmp_path)])
+    assert result.exit_code == 0
+    assert "PASS" in result.output
+
+
+def test_cli_aider_explicit_adapter(tmp_path: Path):
+    """--adapter aider works on an Aider repo."""
+    _make_clean_aider_repo(tmp_path)
+    result = _RUNNER.invoke(main, ["--adapter", "aider", str(tmp_path)])
+    assert result.exit_code == 0
+    assert "PASS" in result.output
+
+
+def test_cli_aider_rules_dir_collected(tmp_path: Path):
+    """Files under .aider/rules/ are collected and scanned."""
+    _make_aider_with_rules_dir(tmp_path)
+    result = _RUNNER.invoke(main, ["--adapter", "aider", "--format", "json", str(tmp_path)])
+    assert result.exit_code == 0
+    data = json.loads(result.output)
+    assert data["files_scanned"] >= 1
+    assert data["adapter"] == "aider"
+
+
+def test_cli_aider_no_files_exit2(tmp_path: Path):
+    """--adapter aider on a repo without Aider files exits 2."""
+    _make_clean_copilot_repo(tmp_path)
+    result = _RUNNER.invoke(main, ["--adapter", "aider", str(tmp_path)])
+    assert result.exit_code == 2
+
+
+# ---------------------------------------------------------------------------
+# Continue.dev adapter
+# ---------------------------------------------------------------------------
+
+
+def _make_clean_continue_repo(root: Path) -> None:
+    """Minimal Continue.dev repo with a monolithic .continuerules file."""
+    (root / ".continuerules").write_text(
+        "# Continue global rules\nAlways write tests first.\n",
+        encoding="utf-8",
+    )
+
+
+def _make_continue_with_rules_dir(root: Path) -> None:
+    """Continue.dev repo with .continue/rules/*.md rule files."""
+    rules_dir = root / ".continue" / "rules"
+    rules_dir.mkdir(parents=True)
+    (rules_dir / "my-rule.md").write_text(
+        "---\ntrigger: Write tests first\n---\n# My Rule\nContent here.\n",
+        encoding="utf-8",
+    )
+
+
+def test_cli_continue_auto_detect(tmp_path: Path):
+    """Auto mode picks up .continuerules without --adapter flag."""
+    _make_clean_continue_repo(tmp_path)
+    result = _RUNNER.invoke(main, [str(tmp_path)])
+    assert result.exit_code == 0
+    assert "PASS" in result.output
+
+
+def test_cli_continue_explicit_adapter(tmp_path: Path):
+    """--adapter continue works on a Continue.dev repo."""
+    _make_clean_continue_repo(tmp_path)
+    result = _RUNNER.invoke(main, ["--adapter", "continue", str(tmp_path)])
+    assert result.exit_code == 0
+    assert "PASS" in result.output
+
+
+def test_cli_continue_rules_dir_collected(tmp_path: Path):
+    """Files under .continue/rules/ are collected and scanned."""
+    _make_continue_with_rules_dir(tmp_path)
+    result = _RUNNER.invoke(main, ["--adapter", "continue", "--format", "json", str(tmp_path)])
+    assert result.exit_code == 0
+    data = json.loads(result.output)
+    assert data["files_scanned"] >= 1
+    assert data["adapter"] == "continue"
+
+
+def test_cli_continue_no_files_exit2(tmp_path: Path):
+    """--adapter continue on a repo without Continue files exits 2."""
+    _make_clean_copilot_repo(tmp_path)
+    result = _RUNNER.invoke(main, ["--adapter", "continue", str(tmp_path)])
+    assert result.exit_code == 2
+
+
+# ---------------------------------------------------------------------------
+# severity_overrides config key
+# ---------------------------------------------------------------------------
+
+
+def test_severity_override_warning_to_error(tmp_path: Path):
+    """severity_overrides can promote a warning check to error, causing exit 1."""
+    _make_warning_copilot_repo(tmp_path)
+
+    # Without override: AL-N01 is a warning → exit 0
+    result = _RUNNER.invoke(main, [str(tmp_path)])
+    assert result.exit_code == 0
+
+    # With severity_overrides: {AL-N01: error} → AL-N01 becomes error → exit 1
+    cfg = tmp_path / ".agentlint.yml"
+    cfg.write_text("severity_overrides:\n  AL-N01: error\n", encoding="utf-8")
+    result = _RUNNER.invoke(main, [str(tmp_path)])
+    assert result.exit_code == 1
+
+
+def test_severity_override_error_to_warning(tmp_path: Path):
+    """severity_overrides can demote an error check to warning, allowing exit 0."""
+    _make_error_copilot_repo(tmp_path)
+
+    # Without override: AL-D01 is an error → exit 1
+    result = _RUNNER.invoke(main, [str(tmp_path)])
+    assert result.exit_code == 1
+
+    # With severity_overrides: {AL-D01: warning} → exit 0
+    cfg = tmp_path / ".agentlint.yml"
+    cfg.write_text("severity_overrides:\n  AL-D01: warning\n", encoding="utf-8")
+    result = _RUNNER.invoke(main, [str(tmp_path)])
+    assert result.exit_code == 0
+
+
+# ---------------------------------------------------------------------------
+# --format badge
+# ---------------------------------------------------------------------------
+
+
+def test_cli_format_badge_writes_svg(tmp_path: Path):
+    """--format badge writes agentlint-badge.svg to the scanned directory."""
+    _make_clean_copilot_repo(tmp_path)
+    result = _RUNNER.invoke(main, ["--format", "badge", str(tmp_path)])
+    assert result.exit_code == 0
+    badge = tmp_path / "agentlint-badge.svg"
+    assert badge.exists(), "agentlint-badge.svg should be created"
+    content = badge.read_text(encoding="utf-8")
+    assert content.startswith("<svg"), "Badge file should be an SVG"
+    assert "Grade: A" in content
+
+
+def test_cli_format_badge_grade_in_output(tmp_path: Path):
+    """--format badge echoes the grade to stdout."""
+    _make_clean_copilot_repo(tmp_path)
+    result = _RUNNER.invoke(main, ["--format", "badge", str(tmp_path)])
+    assert "Grade: A" in result.output
+
+
+def test_cli_format_badge_error_repo(tmp_path: Path):
+    """--format badge still writes the badge even when errors cause exit 1."""
+    _make_error_copilot_repo(tmp_path)
+    result = _RUNNER.invoke(main, ["--format", "badge", str(tmp_path)])
+    # exit 1 because of errors
+    assert result.exit_code == 1
+    badge = tmp_path / "agentlint-badge.svg"
+    assert badge.exists(), "Badge should be written even on a failing run"
+    content = badge.read_text(encoding="utf-8")
+    assert content.startswith("<svg"), "Badge file should be valid SVG"
+    assert "agentlint" in content

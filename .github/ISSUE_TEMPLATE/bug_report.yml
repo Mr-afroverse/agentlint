@@ -1,0 +1,60 @@
+name: Bug report
+description: Something is not working correctly.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing a bug. Filling in every field helps us reproduce the issue faster.
+
+  - type: input
+    id: version
+    attributes:
+      label: agentlint version
+      description: Run `agentlint --version`
+      placeholder: "0.1.0"
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: OS / Python version
+      placeholder: "Windows 11, Python 3.12"
+    validations:
+      required: true
+
+  - type: input
+    id: command
+    attributes:
+      label: Command you ran
+      placeholder: "agentlint --format json ."
+    validations:
+      required: true
+
+  - type: textarea
+    id: output
+    attributes:
+      label: Full output
+      description: Paste the complete terminal output (text or JSON). Run with `--format json` if the text output is unclear.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+      description: What should agentlint have reported instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal reproduction
+      description: >
+        Paste the smallest instruction file content that triggers the bug,
+        or link to a public repo. The more minimal, the faster we fix it.
+    validations:
+      required: false

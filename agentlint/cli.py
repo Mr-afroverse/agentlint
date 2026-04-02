@@ -13,7 +13,9 @@ if sys.stdout.encoding and sys.stdout.encoding.lower().replace("-", "") != "utf8
     )
 
 from agentlint import __version__
+from agentlint.adapters.aider import AiderAdapter
 from agentlint.adapters.copilot import CopilotAdapter
+from agentlint.adapters.continudev import ContinueAdapter
 from agentlint.adapters.cursor import CursorAdapter
 from agentlint.adapters.windsurf import WindsurfAdapter
 from agentlint.checks import dispatch_coverage, file_references, forbidden_patterns, number_sourcing, trigger_overlap
@@ -21,7 +23,7 @@ from agentlint.config import Config
 from agentlint.models import LintResult
 from agentlint import report as rep
 
-_ADAPTERS = [CopilotAdapter(), CursorAdapter(), WindsurfAdapter()]
+_ADAPTERS = [CopilotAdapter(), CursorAdapter(), WindsurfAdapter(), AiderAdapter(), ContinueAdapter()]
 # Unique checks — each function runs once per adapter.
 _UNIQUE_CHECKS = [
     ("dispatch-coverage",  dispatch_coverage.run),
@@ -31,6 +33,22 @@ _UNIQUE_CHECKS = [
     ("forbidden-patterns", forbidden_patterns.run),
 ]
 
+# File extensions that can contain instruction content worth watching.
+_WATCH_EXTENSIONS = frozenset({".md", ".mdc", ".yml", ".yaml"})
+
+
+def _collect_and_lint(root: Path, active: list, config: Config) -> tuple[int, list]:
+    """Run all checks against *active* adapters. Returns (total_files, violations)."""
+    all_violations = []
+    total_files = 0
+    for a in active:
+        instruction_files = a.collect(root)
+        total_files += len(instruction_files)
+        for check_key, check_fn in _UNIQUE_CHECKS:
+            if config.checks.get(check_key, True):
+                all_violations.extend(check_fn(instruction_files, config, root))
+    return total_files, all_violations
+
 
 @click.command(context_settings={"help_option_names": ["-h", "--help"]})
 @click.version_option(__version__, "-V", "--version")
@@ -38,8 +56,8 @@ _UNIQUE_CHECKS = [
 @click.option(
     "--format", "output_format",
     default=None,
-    type=click.Choice(["text", "json", "sarif"]),
-    help="Output format (default: text).",
+    type=click.Choice(["text", "json", "sarif", "badge"]),
+    help="Output format (default: text). 'badge' writes agentlint-badge.svg to disk.",
 )
 @click.option(
     "--config", "config_path",
@@ -50,7 +68,7 @@ _UNIQUE_CHECKS = [
 @click.option(
     "--adapter",
     default="auto",
-    type=click.Choice(["copilot", "cursor", "windsurf", "auto"]),
+    type=click.Choice(["copilot", "cursor", "windsurf", "aider", "continue", "auto"]),
     help="Force a specific adapter (default: auto-detect).",
 )
 @click.option(
@@ -65,6 +83,12 @@ _UNIQUE_CHECKS = [
     default=False,
     help="Copy SKILL_HEALTH_CHECK.md template into .github/skills/.",
 )
+@click.option(
+    "--watch",
+    is_flag=True,
+    default=False,
+    help="Re-run on file changes. Requires: pip install 'instruction-lint[watch]'.",
+)
 def main(
     path: str,
     output_format: str | None,
@@ -72,6 +96,7 @@ def main(
     adapter: str,
     fail_on_warnings: bool,
     init: bool,
+    watch: bool,
 ) -> None:
     """agentlint — audit AI coding assistant instruction files.
 
@@ -107,16 +132,15 @@ def main(
         if (adapter == "auto" and a.detect(root)) or (adapter != "auto" and a.name == adapter)
     ]
 
-    all_violations = []
-    total_files = 0
+    total_files, all_violations = _collect_and_lint(root, active, config)
 
-    for a in active:
-        instruction_files = a.collect(root)
-        total_files += len(instruction_files)
-
-        for check_key, check_fn in _UNIQUE_CHECKS:
-            if config.checks.get(check_key, True):
-                all_violations.extend(check_fn(instruction_files, config, root))
+    # Apply per-check severity overrides from config
+    if config.severity_overrides:
+        for v in all_violations:
+            if v.check_id in config.severity_overrides:
+                from agentlint.models import Severity as _Sev
+                new_sev = config.severity_overrides[v.check_id]
+                v.severity = _Sev.ERROR if new_sev == "error" else _Sev.WARNING
 
     # Guard: exit 2 when nothing was collected — covers both "no adapter matched"
     # in auto mode, and "adapter named but repo has no instruction files yet".
@@ -125,8 +149,9 @@ def main(
             click.echo(
                 "[agentlint] No supported instruction format detected.\n"
                 "  Looked for: .github/copilot-instructions.md, .cursorrules, .cursor/rules/,"
-                " .windsurfrules, .windsurf/rules/\n"
-                "  Use --adapter copilot, --adapter cursor, or --adapter windsurf to force.",
+                " .windsurfrules, .windsurf/rules/, .aider.conf.yml, .aider/rules/,"
+                " .continuerules, .continue/rules/\n"
+                "  Use --adapter copilot/cursor/windsurf/aider/continue to force.",
                 err=True,
             )
         else:
@@ -148,8 +173,17 @@ def main(
         click.echo(rep.format_json(result, root))
     elif config.output_format == "sarif":
         click.echo(rep.format_sarif(result, root))
+    elif config.output_format == "badge":
+        svg = rep.format_badge(result)
+        badge_path = root / "agentlint-badge.svg"
+        badge_path.write_text(svg, encoding="utf-8")
+        click.echo(f"[agentlint] Badge written to {badge_path.as_posix()}  (Grade: {result.grade()})")
     else:
         click.echo(rep.format_text(result, root))
+
+    if watch:
+        _watch_loop(root, active, config)
+        return
 
     if not result.passed or (config.fail_on_warnings and result.warnings):
         sys.exit(1)
@@ -172,6 +206,82 @@ def _run_init(root: Path) -> None:
     else:
         dest.write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
         click.echo(f"[agentlint] Created {dest}")
+
+
+def _watch_loop(root: Path, active: list, config: Config) -> None:
+    """Block until Ctrl+C, re-linting whenever a watched file changes."""
+    try:
+        from watchdog.events import FileSystemEventHandler  # type: ignore[import]
+        from watchdog.observers import Observer             # type: ignore[import]
+    except ImportError:
+        click.echo(
+            "[agentlint] --watch requires watchdog.\n"
+            "  Install it: pip install 'instruction-lint[watch]'",
+            err=True,
+        )
+        sys.exit(1)
+
+    import threading
+    import time
+
+    _lock = threading.Lock()
+    _pending_timer: threading.Timer | None = None
+
+    def _schedule_rerun() -> None:
+        nonlocal _pending_timer
+        with _lock:
+            if _pending_timer is not None:
+                _pending_timer.cancel()
+            _pending_timer = threading.Timer(0.3, _do_lint)
+            _pending_timer.start()
+
+    def _do_lint() -> None:
+        total_files, all_violations = _collect_and_lint(root, active, config)
+        result = LintResult(
+            root=root,
+            files_scanned=total_files,
+            violations=all_violations,
+            adapter="+".join(a.name for a in active),
+        )
+        click.echo("\n" + "\u2500" * 60)
+        if config.output_format == "json":
+            click.echo(rep.format_json(result, root))
+        elif config.output_format == "sarif":
+            click.echo(rep.format_sarif(result, root))
+        else:
+            click.echo(rep.format_text(result, root))
+
+    class _Handler(FileSystemEventHandler):
+        def _maybe_rerun(self, event) -> None:
+            if not event.is_directory and Path(event.src_path).suffix in _WATCH_EXTENSIONS:
+                _schedule_rerun()
+
+        def on_modified(self, event) -> None:
+            self._maybe_rerun(event)
+
+        def on_created(self, event) -> None:
+            self._maybe_rerun(event)
+
+        def on_deleted(self, event) -> None:
+            self._maybe_rerun(event)
+
+    observer = Observer()
+    observer.schedule(_Handler(), str(root), recursive=True)
+    observer.start()
+    click.echo(f"[agentlint] Watching {root.as_posix()} \u2014 press Ctrl+C to stop.")
+
+    try:
+        while observer.is_alive():
+            time.sleep(0.5)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        with _lock:
+            if _pending_timer is not None:
+                _pending_timer.cancel()
+        observer.stop()
+        observer.join()
+    click.echo("\n[agentlint] Watch stopped.")
 
 
 if __name__ == "__main__":

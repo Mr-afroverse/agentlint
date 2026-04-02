@@ -1,0 +1,58 @@
+name: Feature request
+description: Suggest a new check, adapter, or CLI option.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing, check the [CHANGELOG](../../blob/main/CHANGELOG.md) to see if this is already planned.
+
+  - type: dropdown
+    id: type
+    attributes:
+      label: Type of improvement
+      options:
+        - New check (AL-*)
+        - New adapter (assistant format)
+        - CLI option / flag
+        - Configuration key
+        - Performance
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem this solves
+      description: >
+        What drift, error, or pain does this address?
+        What does agentlint currently miss that causes real problems?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: How should agentlint behave differently?
+    validations:
+      required: true
+
+  - type: textarea
+    id: example
+    attributes:
+      label: Example — input that should trigger a violation
+      description: >
+        Paste an instruction file snippet that currently passes but shouldn't,
+        and what the expected violation message would look like.
+      render: markdown
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: willing
+    attributes:
+      label: Contribution
+      options:
+        - label: I am willing to open a pull request for this.

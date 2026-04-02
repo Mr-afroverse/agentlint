@@ -32,9 +32,13 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+watch = [
+    "watchdog>=3.0",
+]
 dev = [
     "pytest>=7.4",
     "pytest-cov>=4.0",
+    "watchdog>=3.0",
 ]
 
 [project.scripts]

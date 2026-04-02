@@ -28,6 +28,15 @@ _GRADE_COLOR = {
     "F": "red",
 }
 
+# Badge fill colours (shields.io palette)
+_BADGE_COLOR = {
+    "A": "#44cc11",
+    "B": "#97ca00",
+    "C": "#dfb317",
+    "D": "#fe7d37",
+    "F": "#e05d44",
+}
+
 
 def _c(text: str, color: str) -> str:
     return f"{_ANSI.get(color, '')}{text}{_ANSI['reset']}"
@@ -168,3 +177,34 @@ def format_sarif(result: LintResult, root: Path) -> str:
         ],
     }
     return json.dumps(payload, indent=2)
+
+
+def format_badge(result: LintResult) -> str:
+    """Return a shields.io-style flat SVG badge showing the grade."""
+    grade = result.grade()
+    color = _BADGE_COLOR.get(grade, "#9f9f9f")
+    label = "agentlint"
+    value = f"Grade: {grade}"
+    # Approximate character widths at 11px Verdana (shields.io formula)
+    label_w = len(label) * 6 + 10
+    value_w = len(value) * 6 + 10
+    total_w = label_w + value_w
+    label_x = label_w // 2
+    value_x = label_w + value_w // 2
+    return (
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{total_w}" height="20">'
+        f'<linearGradient id="s" x2="0" y2="100%">'
+        f'<stop offset="0" stop-color="#bbb" stop-opacity=".1"/>'
+        f'<stop offset="1" stop-opacity=".1"/>'
+        f"</linearGradient>"
+        f'<rect width="{label_w}" height="20" fill="#555"/>'
+        f'<rect x="{label_w}" width="{value_w}" height="20" fill="{color}"/>'
+        f'<rect width="{total_w}" height="20" fill="url(#s)"/>'
+        f'<g fill="#fff" text-anchor="middle" font-family="Verdana,Geneva,sans-serif" font-size="11">'
+        f'<text x="{label_x}" y="15" fill="#010101" fill-opacity=".3">{label}</text>'
+        f'<text x="{label_x}" y="14">{label}</text>'
+        f'<text x="{value_x}" y="15" fill="#010101" fill-opacity=".3">{value}</text>'
+        f'<text x="{value_x}" y="14">{value}</text>'
+        f'</g>'
+        f'</svg>'
+    )

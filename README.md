@@ -4,6 +4,7 @@
 [![PyPI](https://img.shields.io/pypi/v/instruction-lint)](https://pypi.org/project/instruction-lint/)
 [![Python](https://img.shields.io/pypi/pyversions/instruction-lint)](https://pypi.org/project/instruction-lint/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Discord](https://img.shields.io/badge/Discord-Join%20Server-5865F2?logo=discord&logoColor=white)](https://discord.gg/f5jQD5mtYj)
 
 **The ESLint of AI coding assistant instructions.**
 
@@ -62,11 +63,13 @@ All six checks work out of the box with no configuration.
 
 ## Supported assistants
 
-| Assistant | Format detected |
-|-----------|----------------|
-| **GitHub Copilot** | `.github/copilot-instructions.md` + `.github/skills/**/SKILL.md` |
-| **Cursor** | `.cursorrules` + `.cursor/rules/*.mdc` |
-| **Windsurf** | `.windsurfrules` + `.windsurf/rules/*.md` |
+| Assistant | Monolithic File | Modular Rules Directory | Format Detected |
+|-----------|:---:|:---:|----------------|
+| **GitHub Copilot** | ✓ | ✓ | `.github/copilot-instructions.md` + `.github/skills/**/SKILL.md` |
+| **Cursor** | ✓ | ✓ | `.cursorrules` + `.cursor/rules/*.mdc` |
+| **Windsurf** | ✓ | ✓ | `.windsurfrules` + `.windsurf/rules/*.md` |
+| **Aider** | ✓ | ✓ | `.aider.conf.yml` + `.aider/rules/*.md` |
+| **Continue.dev** | ✓ | ✓ | `.continuerules` + `.continue/rules/*.md` |
 
 Multiple formats can be active at once. `agentlint` auto-detects which are present.
 
@@ -150,6 +153,11 @@ source_markers:
 checks:
   trigger-overlap: false
 
+# Re-classify individual check severity ("error" | "warning")
+severity_overrides:
+  AL-N01: error    # promote number-sourcing from warning to error
+  AL-T01: warning  # demote trigger-overlap from default to warning
+
 # Fail the run when warnings are present (default: only errors fail)
 fail_on_warnings: true
 
@@ -200,6 +208,36 @@ jobs:
       - uses: Mr-afroverse/agentlint@v0.1.0
 ```
 
+### Action inputs
+
+| Input | Default | Description |
+|-------|---------|-------------|
+| `path` | `.` | Directory to scan |
+| `format` | `text` | Output format — `text`, `json`, or `sarif` |
+| `adapter` | `auto` | Force adapter — `copilot`, `cursor`, `windsurf`, or `auto` |
+| `fail-on-warnings` | `false` | Exit 1 when warnings are present |
+
+Example — fail the build on warnings:
+
+```yaml
+- uses: Mr-afroverse/agentlint@v0.1.0
+  with:
+    fail-on-warnings: true
+```
+
+Example — emit SARIF for [GitHub Code Scanning](https://docs.github.com/en/code-security/code-scanning):
+
+```yaml
+- name: Install agentlint
+  run: pip install instruction-lint
+- name: Run agentlint (SARIF)
+  run: agentlint --format sarif > agentlint.sarif
+- name: Upload SARIF
+  uses: github/codeql-action/upload-sarif@v3
+  with:
+    sarif_file: agentlint.sarif
+```
+
 ---
 
 ## CLI reference
@@ -211,15 +249,19 @@ Usage: agentlint [OPTIONS] [PATH]
 
 Options:
   -V, --version                   Show the version and exit.
-  --format [text|json|sarif]      Output format (default: text).
+  --format [text|json|sarif|badge]
+                                  Output format (default: text). 'badge' writes
+                                  agentlint-badge.svg to disk.
   --config PATH                   Path to .agentlint.yml config file.
-  --adapter [copilot|cursor|windsurf|auto]
+  --adapter [copilot|cursor|windsurf|aider|continue|auto]
                                   Force a specific adapter (default: auto-
                                   detect).
   --fail-on-warnings              Exit 1 when warnings are present (overrides
                                   config).
   --init                          Copy SKILL_HEALTH_CHECK.md template into
                                   .github/skills/.
+  --watch                         Re-run on file changes. Requires: pip
+                                  install 'instruction-lint[watch]'.
   -h, --help                      Show this message and exit.
 ```
 

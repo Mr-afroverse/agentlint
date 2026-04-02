@@ -1,10 +1,11 @@
 """
-Tests for agentlint/report.py — format_text(), format_json(), and grade().
+Tests for agentlint/report.py — format_text(), format_json(), format_badge(), and grade().
 
 Builds LintResult / Violation objects directly (no filesystem, no adapters).
 Covers:
   - format_text(): PASS output, fail output, grouping by file, fix hint, grade strings
   - format_json(): valid JSON, top-level keys, clean-run values, per-violation fields
+  - format_badge(): valid SVG, correct grade embedded, colour differs by grade
   - LintResult.grade(): boundary cases A through F
   - _rel() resilience: path outside repo root does not raise
 """
@@ -274,3 +275,47 @@ def test_format_text_path_outside_root_does_not_raise(tmp_path: Path):
     r = _result(tmp_path, violations=[v], files_scanned=1)
     text = format_text(r, tmp_path)  # must not raise
     assert "AL-D01" in text
+
+
+# ---------------------------------------------------------------------------
+# format_badge()
+# ---------------------------------------------------------------------------
+
+
+def test_format_badge_is_svg(tmp_path: Path):
+    """format_badge returns a string that starts with <svg."""
+    from agentlint.report import format_badge
+    r = _result(tmp_path, files_scanned=2)
+    svg = format_badge(r)
+    assert svg.startswith("<svg")
+    assert "</svg>" in svg
+
+
+def test_format_badge_grade_a_embedded(tmp_path: Path):
+    """Grade A is embedded in the badge SVG for a clean result."""
+    from agentlint.report import format_badge
+    r = _result(tmp_path, files_scanned=1)
+    assert "Grade: A" in format_badge(r)
+
+
+def test_format_badge_grade_f_embedded(tmp_path: Path):
+    """Grade F is embedded in the badge SVG for a heavily failing result."""
+    from agentlint.report import format_badge
+    errors = [_error(tmp_path, line=i) for i in range(1, 4)]
+    r = _result(tmp_path, violations=errors, files_scanned=1)
+    assert r.grade() == "F"
+    assert "Grade: F" in format_badge(r)
+
+
+def test_format_badge_colours_differ_by_grade(tmp_path: Path):
+    """Grade A and Grade F badges use different fill colours."""
+    from agentlint.report import format_badge
+    a_svg = format_badge(_result(tmp_path, files_scanned=1))
+    errors = [_error(tmp_path, line=i) for i in range(1, 4)]
+    f_svg = format_badge(_result(tmp_path, violations=errors, files_scanned=1))
+    # Extract the first fill colour from each (the value-rect fill)
+    import re
+    def _color(svg: str) -> str:
+        m = re.search(r'fill="(#[0-9a-fA-F]{6})"', svg)
+        return m.group(1) if m else ""
+    assert _color(a_svg) != _color(f_svg)

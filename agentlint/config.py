@@ -83,8 +83,13 @@ class Config:
     forbidden_patterns_mode: str = "extend"
 
     # ------------------------------------------------------------ reporting
-    output_format: str = "text"   # "text" | "json"
+    output_format: str = "text"   # "text" | "json" | "sarif" | "badge"
     fail_on_warnings: bool = False
+
+    # -------------------------------------------------- severity overrides
+    # Map check ID → "error" | "warning" to re-classify individual checks.
+    # Example: severity_overrides: {AL-N01: error}
+    severity_overrides: dict[str, str] = field(default_factory=dict)
 
     # ------------------------------------------------------------ ignores
     ignore_paths: list[str] = field(default_factory=lambda: ["archive/"])
@@ -129,6 +134,15 @@ class Config:
         # Merge dicts
         if "checks" in data:
             cfg.checks.update(data["checks"])
+
+        # Severity overrides
+        if "severity_overrides" in data:
+            raw = data["severity_overrides"]
+            if isinstance(raw, dict):
+                cfg.severity_overrides = {
+                    k: v for k, v in raw.items()
+                    if isinstance(v, str) and v in ("error", "warning")
+                }
 
         # Extend source markers
         if "source_markers" in data:
