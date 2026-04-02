@@ -1,0 +1,37 @@
+name: agentlint
+description: Audit AI coding assistant instruction files for drift, broken references, and structural issues.
+author: agentlint
+
+inputs:
+  path:
+    description: Directory to scan (default: repo root)
+    required: false
+    default: "."
+  format:
+    description: Output format — "text", "json", or "sarif"
+    required: false
+    default: "text"
+  adapter:
+    description: Force adapter — "copilot", "cursor", "windsurf", or "auto"
+    required: false
+    default: "auto"
+  fail-on-warnings:
+    description: Exit 1 when warnings are present (default false)
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Install agentlint
+      shell: bash
+      run: pip install agentlint-cli
+
+    - name: Run agentlint
+      shell: bash
+      run: |
+        ARGS="${{ inputs.path }} --format ${{ inputs.format }} --adapter ${{ inputs.adapter }}"
+        if [ "${{ inputs.fail-on-warnings }}" = "true" ]; then
+          ARGS="$ARGS --fail-on-warnings"
+        fi
+        agentlint $ARGS

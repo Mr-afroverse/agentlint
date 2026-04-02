@@ -1,0 +1,18 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+.pytest_cache/
+*.db
+*.db-journal
+
+# Temporary audit/test helpers (not part of the package)
+_smoke_test.py
+_check_wheel.py
+
+# Internal release process docs — not for public repo
+PUBLISH_AGENT.md
+QUALITY_AUDIT.md
+AGENT_STATE.md

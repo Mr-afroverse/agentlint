@@ -1,0 +1,54 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "agentlint-cli"
+version = "0.1.0"
+description = "The ESLint of AI coding assistant instructions — audit, validate, and fix your Copilot skills, Cursor rules, and agent instruction files."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+  { name = "agentlint", email = "hello@agentlint.dev" },
+]
+keywords = ["github-copilot", "cursor", "windsurf", "ai", "lint", "instructions", "skills", "agent"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Environment :: Console",
+    "Topic :: Software Development :: Quality Assurance",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Utilities",
+]
+dependencies = [
+    "click>=8.0",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+    "pytest-cov>=4.0",
+]
+
+[project.scripts]
+agentlint = "agentlint.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/Mr-afroverse/agentlint"
+Repository = "https://github.com/Mr-afroverse/agentlint"
+Issues = "https://github.com/Mr-afroverse/agentlint/issues"
+Changelog = "https://github.com/Mr-afroverse/agentlint/blob/main/CHANGELOG.md"
+
+[tool.hatch.build.targets.wheel]
+packages = ["agentlint"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
