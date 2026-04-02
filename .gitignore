@@ -12,7 +12,12 @@ build/
 _smoke_test.py
 _check_wheel.py
 
+# Coverage reports
+.coverage
+htmlcov/
+
 # Internal release process docs — not for public repo
 PUBLISH_AGENT.md
 QUALITY_AUDIT.md
 AGENT_STATE.md
+AWESOME_CURSORRULES_PR.md
