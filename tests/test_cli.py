@@ -216,9 +216,10 @@ def test_cli_adapter_copilot_explicit_on_copilot_repo(tmp_path: Path):
 
 
 def test_cli_version_shows_0_1_0():
+    from agentlint import __version__
     result = _RUNNER.invoke(main, ["--version"])
     assert result.exit_code == 0
-    assert "0.1.0" in result.output
+    assert __version__ in result.output
 
 
 # ---------------------------------------------------------------------------

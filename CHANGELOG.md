@@ -2,9 +2,36 @@
 
 All notable changes to agentlint are documented here.
 
-## [Unreleased] — pre-release additions (2026-04-02)
+## [0.1.1] — 2026-04-02
 
 ### Added
+- **Aider adapter** — detects and lints `.aider.conf.yml` (DISPATCH) and `.aider/rules/*.md`
+  (SKILL) files. `--adapter aider` and auto-detection both supported.
+- **Continue.dev adapter** — detects and lints `.continuerules` (DISPATCH) and
+  `.continue/rules/*.md` (SKILL) files. `--adapter continue` and auto-detection both
+  supported.
+- **`--watch` mode** — re-lints automatically on every file save using `watchdog`.
+  Install with `pip install 'instruction-lint[watch]'`.
+- **`--format badge`** — generates a shields.io-style `agentlint-badge.svg` grade badge
+  written to the scanned directory root.
+- **`severity_overrides` config key** — re-classify any check ID from error→warning or
+  warning→error in `.agentlint.yml`.
+- **GitHub issue templates** — bug report and feature request forms added to
+  `.github/ISSUE_TEMPLATE/`.
+- **Discord community** — server at https://discord.gg/f5jQD5mtYj, badge in README.
+- **README adapter table** — expanded to show Monolithic/Modular columns for all 5
+  supported assistants.
+- **GitHub Action inputs table** — documented `path`, `format`, `adapter`,
+  `fail-on-warnings` with examples including SARIF Code Scanning.
+- 20 new tests (adapters, badge, severity overrides, watch). Test count: 77 → 97.
+
+### Changed
+- `--format` now accepts `badge` in addition to `text`, `json`, `sarif`.
+- `--adapter` now accepts `aider` and `continue` in addition to `copilot`, `cursor`,
+  `windsurf`, `auto`.
+- No-adapter-detected message lists all 5 supported file patterns.
+
+### Added (from earlier pre-release, promoted to 0.1.1)
 - **Windsurf adapter** — detects and lints `.windsurfrules` (DISPATCH) and
   `.windsurf/rules/*.md` (SKILL) files. `--adapter windsurf` and auto-detection both
   supported. (`agentlint/adapters/windsurf.py`)

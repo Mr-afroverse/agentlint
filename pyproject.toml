@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "instruction-lint"
-version = "0.1.0"
+version = "0.1.1"
 description = "The ESLint of AI coding assistant instructions — audit, validate, and fix your Copilot skills, Cursor rules, and agent instruction files."
 readme = "README.md"
 requires-python = ">=3.10"
