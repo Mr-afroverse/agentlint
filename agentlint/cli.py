@@ -24,8 +24,9 @@ from agentlint.checks import (
     forbidden_patterns,
     number_sourcing,
     trigger_overlap,
+    value_extraction,
 )
-from agentlint.checks import config_parity, consistency
+from agentlint.checks import config_parity, consistency, ground_truth
 from agentlint.config import Config
 from agentlint.models import InstructionFile, LintResult, Role
 from agentlint import report as rep
@@ -44,6 +45,7 @@ _UNIQUE_CHECKS = [
     ("number-sourcing", number_sourcing.run),
     ("trigger-overlap", trigger_overlap.run),
     ("forbidden-patterns", forbidden_patterns.run),
+    ("value-extraction", value_extraction.run),
 ]
 
 # File extensions that can contain instruction content worth watching.
@@ -54,13 +56,23 @@ _WATCH_EXTENSIONS = frozenset({".md", ".mdc", ".yml", ".yaml"})
 _DOCS_CHECKS = [
     ("file-references", file_references.run),
     ("forbidden-patterns", forbidden_patterns.run),
+    ("value-extraction", value_extraction.run),
 ]
 
 # Standalone checks driven entirely by config (not by adapter-collected files).
 _STANDALONE_CHECKS = [
     ("config-parity", config_parity.run),
     ("consistency-groups", consistency.run),
+    ("ground-truth", ground_truth.run),
 ]
+
+
+def _rel_str(p: Path, root: Path) -> str:
+    """Return *p* as a POSIX string relative to *root*."""
+    try:
+        return p.relative_to(root).as_posix()
+    except ValueError:
+        return p.as_posix()
 
 
 def _collect_extra(
@@ -95,35 +107,41 @@ def _collect_extra(
     return extra
 
 
-def _collect_and_lint(root: Path, active: list, config: Config) -> tuple[int, list]:
-    """Run all checks against *active* adapters. Returns (total_files, violations)."""
+def _collect_and_lint(
+    root: Path, active: list, config: Config
+) -> tuple[int, list, list[Path]]:
+    """Run all checks against *active* adapters. Returns (total_files, violations, scanned_paths)."""
     all_violations: list = []
     total_files = 0
     already_seen: set[Path] = set()
+    scanned_paths: list[Path] = []
 
     for a in active:
         instruction_files = a.collect(root)
         total_files += len(instruction_files)
         for f in instruction_files:
             already_seen.add(f.path.resolve())
+            scanned_paths.append(f.path)
         for check_key, check_fn in _UNIQUE_CHECKS:
             if config.checks.get(check_key, True):
                 all_violations.extend(check_fn(instruction_files, config, root))
 
-    # Extra paths — run only docs-safe checks (AL-P*, AL-F01)
+    # Extra paths — run only docs-safe checks (AL-P*, AL-F01, AL-V01)
     if config.extra_paths:
         extra_files = _collect_extra(root, config, already_seen)
         total_files += len(extra_files)
+        for f in extra_files:
+            scanned_paths.append(f.path)
         for check_key, check_fn in _DOCS_CHECKS:
             if config.checks.get(check_key, True):
                 all_violations.extend(check_fn(extra_files, config, root))
 
-    # Standalone config-driven checks (AL-E01, AL-C01)
+    # Standalone config-driven checks (AL-E01, AL-C01, AL-G01)
     for check_key, check_fn in _STANDALONE_CHECKS:
         if config.checks.get(check_key, True):
             all_violations.extend(check_fn([], config, root))
 
-    return total_files, all_violations
+    return total_files, all_violations, scanned_paths
 
 
 @click.command(context_settings={"help_option_names": ["-h", "--help"]})
@@ -212,7 +230,7 @@ def main(
         or (adapter != "auto" and a.name == adapter)
     ]
 
-    total_files, all_violations = _collect_and_lint(root, active, config)
+    total_files, all_violations, scanned_paths = _collect_and_lint(root, active, config)
 
     # Apply per-check severity overrides from config
     if config.severity_overrides:
@@ -249,6 +267,7 @@ def main(
         files_scanned=total_files,
         violations=all_violations,
         adapter="+".join(a.name for a in active),
+        scanned_files=[_rel_str(p, root) for p in scanned_paths],
     )
 
     if config.output_format == "json":
@@ -320,12 +339,21 @@ def _watch_loop(root: Path, active: list, config: Config) -> None:
             _pending_timer.start()
 
     def _do_lint() -> None:
-        total_files, all_violations = _collect_and_lint(root, active, config)
+        total_files, all_violations, scanned = _collect_and_lint(root, active, config)
+        # Apply severity overrides — mirrors the logic in main()
+        if config.severity_overrides:
+            from agentlint.models import Severity as _Sev
+
+            for v in all_violations:
+                if v.check_id in config.severity_overrides:
+                    new_sev = config.severity_overrides[v.check_id]
+                    v.severity = _Sev.ERROR if new_sev == "error" else _Sev.WARNING
         result = LintResult(
             root=root,
             files_scanned=total_files,
             violations=all_violations,
             adapter="+".join(a.name for a in active),
+            scanned_files=[_rel_str(p, root) for p in scanned],
         )
         click.echo("\n" + "\u2500" * 60)
         if config.output_format == "json":

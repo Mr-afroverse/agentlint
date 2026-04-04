@@ -39,7 +39,7 @@ Or as a **pre-commit hook** (recommended — runs on every commit, zero maintena
 # .pre-commit-config.yaml
 repos:
   - repo: https://github.com/Mr-afroverse/agentlint
-    rev: v0.2.0
+    rev: v0.3.0
     hooks:
       - id: agentlint
 ```
@@ -49,7 +49,7 @@ repos:
 ## What it checks
 
 | ID | Check | Severity | Zero-config |
-|----|-------|----------|-------------|
+|----|-------|----------|-----------|
 | AL-D01 | Skill path in dispatch table → exists on disk | Error | ✓ |
 | AL-D02 | Skill file on disk → referenced in dispatch table | Error | ✓ |
 | AL-F01 | Source-file paths in skill files → exist on disk | Warning | ✓ |
@@ -58,8 +58,10 @@ repos:
 | AL-P* | Forbidden patterns (built-in defaults + configurable) | Error | ✓ |
 | AL-E01 | `.env` vs `.env.example` key parity | Error | — |
 | AL-C01 | Cross-file value consistency groups | Error | — |
+| AL-V01 | Documented numeric values → match source constants | Error | — |
+| AL-G01 | Documentation values → match ground-truth JSON/YAML | Error | — |
 
-The first six checks work out of the box with no configuration. AL-E01 and AL-C01 are config-driven — add rules in `.agentlint.yml` to activate them.
+AL-D01, AL-D02, AL-F01, AL-N01, AL-T01, and AL-P* work out of the box. AL-E01, AL-C01, AL-V01, and AL-G01 are config-driven — add rules in `.agentlint.yml` to activate them.
 
 ---
 
@@ -93,7 +95,17 @@ Multiple formats can be active at once. `agentlint` auto-detects which are prese
   .github/skills/eudr-standards/SKILL.md
     ⚠ [AL-N01]:48  Threshold number without source pointer: `| GREEN ≥ 90% |`
       Fix → Add '(Source: constants.py)' or a regulatory article reference.
+
+  docs/ARCHITECTURE.md
+    ✖ [AL-V01]:31  Documented value `25` ≠ source `NotificationConfig.minimum_risk_score` = `30` in `agents/notification_agent.py`
+      Fix → Update the value to `30` or correct the source.
 ```
+
+> **AL-V01 source annotation format:** Add a constant path to your `(Source:)` annotation to enable value validation:
+> ```
+> Notification threshold: 30  (Source: agents/notification_agent.py:NotificationConfig.minimum_risk_score)
+> ```
+> agentlint resolves the file, extracts the constant's current value, and errors if they disagree. Plain `(Source: file.py)` annotations (without `:constant`) are handled by AL-N01 as before.
 
 ---
 
@@ -176,6 +188,8 @@ extra_paths:
   - "*.md"
 
 # .env vs .env.example key parity (AL-E01)
+# Parses KEY=value and export KEY=value formats. Commented-out keys (# KEY=)
+# are not counted as defined keys in either file.
 config_parity:
   - source: ".env"
     template: ".env.example"
@@ -187,6 +201,36 @@ consistency_groups:
     pattern: '\b(\d+)\s+passed'
     files: ["README.md", "CONTRIBUTING.md", "docs/RELEASE.md"]
     severity: error
+
+# ── v0.3 features ────────────────────────────────────────────
+
+# Validate documented numbers against their source constants (AL-V01)
+# Works automatically on any file with (Source: file.py:CONSTANT) annotations.
+# No config required — the annotation format is the trigger.
+
+# Ground-truth file checks (AL-G01)
+# value_match mode: scalar from JSON/YAML must match doc pattern
+ground_truth_files:
+  - id: TEST-COUNT
+    json_file: "logs/test_results.json"  # written by CI
+    json_path: "passed"
+    doc_pattern: '\b(\d+) passed'
+    files: ["README.md", "DEPLOYMENT_GUIDE.md"]
+    reason: "Test count in docs must match pytest output"
+    severity: error
+
+  # no_stale_refs mode: list from JSON must include every referenced ID
+  - id: ACTIVE-SOURCES
+    json_file: "config/sources_production.json"
+    json_path: "sources[*].id"
+    mode: "no_stale_refs"
+    ref_pattern: '\b([\w-]+-(?:news|feed|monitor))\b'
+    files: ["**/*.md"]
+    reason: "Source IDs in docs must exist in sources_production.json"
+    severity: warning
+
+# Opt-in: check filenames inside ASCII tree diagrams for AL-F01
+tree_diagram_paths: true
 ```
 
 ### Replace built-in forbidden patterns entirely
@@ -227,7 +271,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: Mr-afroverse/agentlint@v0.2.0
+      - uses: Mr-afroverse/agentlint@v0.3.0
 ```
 
 ### Action inputs
@@ -242,7 +286,7 @@ jobs:
 Example — fail the build on warnings:
 
 ```yaml
-- uses: Mr-afroverse/agentlint@v0.2.0
+- uses: Mr-afroverse/agentlint@v0.3.0
   with:
     fail-on-warnings: true
 ```

@@ -4,8 +4,10 @@ from agentlint.checks import (
     dispatch_coverage,
     file_references,
     forbidden_patterns,
+    ground_truth,
     number_sourcing,
     trigger_overlap,
+    value_extraction,
 )
 
 __all__ = [
@@ -14,6 +16,8 @@ __all__ = [
     "dispatch_coverage",
     "file_references",
     "forbidden_patterns",
+    "ground_truth",
     "number_sourcing",
     "trigger_overlap",
+    "value_extraction",
 ]

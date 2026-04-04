@@ -49,6 +49,7 @@ class LintResult:
     files_scanned: int
     violations: list[Violation]
     adapter: str
+    scanned_files: list[str] = field(default_factory=list)
 
     @property
     def errors(self) -> list[Violation]:

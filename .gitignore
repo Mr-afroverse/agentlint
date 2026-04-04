@@ -23,6 +23,9 @@ AGENT_STATE.md
 AWESOME_CURSORRULES_PR.md
 release-v*.md
 
+# Local Copilot workspace instructions — not for public repo yet
+.github/copilot-instructions.md
+
 # Internal marketing research — not for public repo
 reddit-post-pack.txt
 reddit-research.md

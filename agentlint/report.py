@@ -103,6 +103,7 @@ def format_json(result: LintResult, root: Path) -> str:
             "grade": result.grade(),
             "adapter": result.adapter,
             "files_scanned": result.files_scanned,
+            "scanned_files": result.scanned_files,
             "errors": len(result.errors),
             "warnings": len(result.warnings),
             "violations": [_v(v) for v in result.violations],

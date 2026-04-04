@@ -3,6 +3,9 @@ AL-F01  Concrete source-file paths referenced in skill files must exist on disk.
 
 Matches paths like `app/services/foo.py`, `src/utils/bar.ts`, etc.
 Glob patterns and template strings (containing `{` or `*`) are ignored.
+
+When ``tree_diagram_paths`` is enabled in config, also checks filenames
+inside ASCII tree diagrams (├── / └── prefixed lines).
 """
 
 from __future__ import annotations
@@ -22,6 +25,9 @@ _FILE_REF_RE = re.compile(
 
 # Exactly 3 backticks at start of line — opening/closing a code fence.
 _CODE_FENCE_RE = re.compile(r"^```(?!`)")
+
+# Tree diagram line: ├── filename.ext or └── filename.ext
+_TREE_FILE_RE = re.compile(r"[│├└─\s]*[├└]\u2500\u2500\s+([\w.-]+\.[\w]{1,6})\b")
 
 
 def run(
@@ -53,6 +59,18 @@ def run(
                     known_files.append(rel)
     except PermissionError:
         pass
+
+    # Collect all filenames in project (for tree diagram checking).
+    known_filenames: set[str] = set()
+    if config.tree_diagram_paths:
+        try:
+            for f in root.rglob("*"):
+                if f.is_file() and not any(
+                    part.startswith(".") for part in f.relative_to(root).parts
+                ):
+                    known_filenames.add(f.name)
+        except PermissionError:
+            pass
 
     violations: list[Violation] = []
 
@@ -92,5 +110,34 @@ def run(
                             fix_hint=fix_hint,
                         )
                     )
+
+            # Tree diagram paths (opt-in)
+            if config.tree_diagram_paths:
+                for m in _TREE_FILE_RE.finditer(line):
+                    fname = m.group(1)
+                    if fname in seen:
+                        continue
+                    seen.add(fname)
+                    if fname not in known_filenames:
+                        suggestions = difflib.get_close_matches(
+                            fname,
+                            sorted(known_filenames),
+                            n=1,
+                            cutoff=0.6,
+                        )
+                        fix_hint = (
+                            f"Did you mean '{suggestions[0]}'? " if suggestions else ""
+                        )
+                        fix_hint += "Update the filename or create the missing file."
+                        violations.append(
+                            Violation(
+                                check_id="AL-F01",
+                                severity=Severity.WARNING,
+                                file=sf.path,
+                                line=lineno,
+                                message=f"Tree diagram file not found on disk: `{fname}`",
+                                fix_hint=fix_hint,
+                            )
+                        )
 
     return violations

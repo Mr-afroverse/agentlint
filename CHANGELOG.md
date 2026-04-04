@@ -2,6 +2,38 @@
 
 All notable changes to agentlint are documented here.
 
+## [0.3.0] — 2026-04-04
+
+### Added
+- **AL-V01 `value_extraction` check** — validates that documented numeric values match
+  their referenced source constants. When a source annotation includes a constant path
+  (e.g. `(Source: agents/notification_agent.py:NotificationConfig.minimum_risk_score)`),
+  agentlint resolves the file, extracts the constant's current value via regex, and
+  reports a mismatch as an error. Source-only annotations without a constant path
+  (e.g. `(Source: constants.py)`) are unchanged — AL-N01 continues to handle those.
+  Runs on instruction files and `extra_paths` documentation files.
+- **AL-G01 `ground_truth_files` check** — verifies documentation values against
+  authoritative JSON or YAML files (no subprocess execution). Supports two modes:
+  `value_match` (extract scalar, validate against doc pattern) and `no_stale_refs`
+  (extract list of valid IDs, flag references outside the list via `ref_pattern`).
+  Configured via `ground_truth_files` rules in `.agentlint.yml`.
+- **AL-F01 `tree_diagram_paths`** — opt-in config flag (`tree_diagram_paths: true`)
+  that enables detection of missing filenames inside ASCII tree diagrams
+  (`├──` / `└──` prefixed lines). Fuzzy suggestions are included when available.
+- **JSON output `scanned_files`** — `--format json` now includes a `scanned_files`
+  list alongside the existing `files_scanned` count, making CI audit logs actionable.
+- 29 new tests (value extraction: 14, ground truth: 15). Test count: 121 → 150.
+
+### Changed
+- AL-V01 is wired into both `_UNIQUE_CHECKS` (instruction files) and `_DOCS_CHECKS`
+  (extra_paths docs), so value annotations are validated across all scanned content.
+- AL-G01 is wired into `_STANDALONE_CHECKS`, running from config alone (no file
+  inputs required).
+- `LintResult` gains an optional `scanned_files: list[str]` field (default `[]`)
+  for backwards-compatible JSON consumers.
+
+---
+
 ## [0.2.0] — 2026-04-04
 
 ### Added

@@ -10,7 +10,7 @@ Thank you for your interest. This guide covers how to add new adapters and check
 git clone https://github.com/Mr-afroverse/agentlint
 cd agentlint
 pip install -e ".[dev]"
-pytest   # all 121 tests should pass
+pytest   # all 150 tests should pass
 ```
 
 ---

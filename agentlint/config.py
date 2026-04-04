@@ -104,6 +104,12 @@ class Config:
     # Cross-file value consistency groups (AL-C01)
     consistency_groups: list[dict] = field(default_factory=list)
 
+    # Ground-truth file checks (AL-G01)
+    ground_truth_files: list[dict] = field(default_factory=list)
+
+    # Opt-in: detect file paths inside ASCII tree diagrams for AL-F01
+    tree_diagram_paths: bool = False
+
     # ----------------------------------------------------------------- load
     @classmethod
     def load(cls, root: Path) -> "Config":
@@ -179,5 +185,15 @@ class Config:
             data["consistency_groups"], list
         ):
             cfg.consistency_groups = data["consistency_groups"]
+
+        # Ground truth file checks (AL-G01)
+        if "ground_truth_files" in data and isinstance(
+            data["ground_truth_files"], list
+        ):
+            cfg.ground_truth_files = data["ground_truth_files"]
+
+        # Tree diagram path detection for AL-F01 (opt-in)
+        if "tree_diagram_paths" in data:
+            cfg.tree_diagram_paths = bool(data["tree_diagram_paths"])
 
         return cfg
