@@ -165,6 +165,7 @@ def test_cli_format_json_valid_and_complete(tmp_path: Path):
         "grade",
         "adapter",
         "files_scanned",
+        "scanned_files",
         "errors",
         "warnings",
         "violations",
@@ -174,6 +175,8 @@ def test_cli_format_json_valid_and_complete(tmp_path: Path):
     assert data["grade"] == "A"
     assert data["errors"] == 0
     assert data["violations"] == []
+    assert isinstance(data["scanned_files"], list)
+    assert len(data["scanned_files"]) == data["files_scanned"]
 
 
 def test_cli_format_json_contains_violation_details(tmp_path: Path):

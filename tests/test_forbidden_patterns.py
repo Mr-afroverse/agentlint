@@ -62,3 +62,21 @@ def test_ignore_path_skips_file(tmp_path: Path):
     files = _ADAPTER.collect(tmp_path)
     violations = run(files, cfg, tmp_path)
     assert violations == []
+
+
+def test_invalid_regex_pattern_skipped(tmp_path: Path):
+    """A forbidden pattern with invalid regex is silently skipped, not a crash."""
+    cfg = Config()
+    cfg.forbidden_patterns = [
+        {
+            "id": "BAD-RE",
+            "pattern": "[invalid regex",
+            "reason": "broken",
+            "fix": "fix it",
+            "severity": "error",
+        }
+    ]
+    _make_skill(tmp_path, "This content should not crash the checker.\n")
+    files = _ADAPTER.collect(tmp_path)
+    violations = run(files, cfg, tmp_path)
+    assert violations == []

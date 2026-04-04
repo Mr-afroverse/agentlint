@@ -242,3 +242,67 @@ def test_f01_no_fuzzy_suggestion_when_no_close_match(tmp_path: Path):
     assert len(f01) == 1
     assert "Did you mean" not in f01[0].fix_hint
     assert "Update the path" in f01[0].fix_hint
+
+
+# ---------------------------------------------------------------------------
+# Tree diagram paths (opt-in via config)
+# ---------------------------------------------------------------------------
+
+
+def test_f01_tree_pass_existing_file(tmp_path: Path):
+    """Tree diagram referencing an existing file → no violation."""
+    (tmp_path / "validator.py").write_text("# real\n", encoding="utf-8")
+    content = "```\n├── validator.py\n└── helpers.py\n```\n"
+    _make_repo(tmp_path, content)
+    # helpers.py doesn't exist but tree lines are inside a code fence → skipped.
+    # Outside of fence, test the feature with a non-fenced tree:
+    skill_dir = tmp_path / ".github" / "skills" / "test-skill"
+    (skill_dir / "SKILL.md").write_text(
+        "Project layout:\n├── validator.py\n", encoding="utf-8"
+    )
+    cfg = Config()
+    cfg.tree_diagram_paths = True
+    files = _ADAPTER.collect(tmp_path)
+    violations = run(files, cfg, tmp_path)
+    f01 = [
+        v for v in violations if v.check_id == "AL-F01" and "Tree diagram" in v.message
+    ]
+    assert f01 == []
+
+
+def test_f01_tree_fail_missing_file(tmp_path: Path):
+    """Tree diagram referencing a missing file → violation when opt-in enabled."""
+    content = "Project layout:\n├── nonexistent_module.py\n└── also_missing.ts\n"
+    _make_repo(tmp_path, content)
+    cfg = Config()
+    cfg.tree_diagram_paths = True
+    files = _ADAPTER.collect(tmp_path)
+    violations = run(files, cfg, tmp_path)
+    tree_violations = [v for v in violations if "Tree diagram" in v.message]
+    assert len(tree_violations) == 2
+    assert tree_violations[0].check_id == "AL-F01"
+    assert tree_violations[0].severity == Severity.WARNING
+
+
+def test_f01_tree_disabled_by_default(tmp_path: Path):
+    """Tree diagram paths are NOT checked when tree_diagram_paths is False (default)."""
+    content = "Project layout:\n├── nonexistent_module.py\n"
+    _make_repo(tmp_path, content)
+    files = _ADAPTER.collect(tmp_path)
+    violations = run(files, Config(), tmp_path)
+    tree_violations = [v for v in violations if "Tree diagram" in v.message]
+    assert tree_violations == []
+
+
+def test_f01_tree_fuzzy_suggestion(tmp_path: Path):
+    """Tree diagram with a close-match file gets a fuzzy suggestion."""
+    (tmp_path / "validator.py").write_text("# real\n", encoding="utf-8")
+    content = "Project layout:\n├── validatr.py\n"
+    _make_repo(tmp_path, content)
+    cfg = Config()
+    cfg.tree_diagram_paths = True
+    files = _ADAPTER.collect(tmp_path)
+    violations = run(files, cfg, tmp_path)
+    tree_violations = [v for v in violations if "Tree diagram" in v.message]
+    assert len(tree_violations) == 1
+    assert "Did you mean" in tree_violations[0].fix_hint
