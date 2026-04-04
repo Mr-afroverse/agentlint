@@ -22,7 +22,7 @@ All notable changes to agentlint are documented here.
   (`├──` / `└──` prefixed lines). Fuzzy suggestions are included when available.
 - **JSON output `scanned_files`** — `--format json` now includes a `scanned_files`
   list alongside the existing `files_scanned` count, making CI audit logs actionable.
-- 29 new tests (value extraction: 14, ground truth: 15). Test count: 121 → 150.
+- 34 new tests (value extraction: 14, ground truth: 15, coverage: 5). Test count: 121 → 155.
 
 ### Changed
 - AL-V01 is wired into both `_UNIQUE_CHECKS` (instruction files) and `_DOCS_CHECKS`
