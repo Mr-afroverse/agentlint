@@ -134,3 +134,16 @@ def test_c01_severity_from_config(tmp_path: Path):
     cfg.consistency_groups[0]["severity"] = "warning"
     violations = run([], cfg, tmp_path)
     assert violations[0].severity == Severity.WARNING
+
+
+def test_c01_invalid_severity_falls_back_to_error(tmp_path: Path):
+    """An unrecognised severity string in consistency_groups falls back to ERROR."""
+    cfg = _setup(
+        tmp_path,
+        {"a.md": "623 passed", "b.md": "497 passed"},
+        r"\b(\d+)\s+passed",
+    )
+    cfg.consistency_groups[0]["severity"] = "INVALID_SEVERITY"
+    violations = run([], cfg, tmp_path)
+    assert len(violations) >= 1
+    assert violations[0].severity == Severity.ERROR

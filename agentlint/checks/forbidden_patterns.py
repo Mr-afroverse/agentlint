@@ -34,7 +34,10 @@ def run(
             except re.error:
                 continue  # bad regex in user config — skip silently
 
-            severity = Severity(pattern_def.get("severity", "error"))
+            try:
+                severity = Severity(pattern_def.get("severity", "error"))
+            except ValueError:
+                severity = Severity.ERROR
 
             for lineno, line in enumerate(f.lines, start=1):
                 if pat.search(line):

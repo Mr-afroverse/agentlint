@@ -80,3 +80,22 @@ def test_invalid_regex_pattern_skipped(tmp_path: Path):
     files = _ADAPTER.collect(tmp_path)
     violations = run(files, cfg, tmp_path)
     assert violations == []
+
+
+def test_invalid_severity_falls_back_to_error(tmp_path: Path):
+    """A forbidden pattern with an unrecognised severity falls back to ERROR."""
+    cfg = Config()
+    cfg.forbidden_patterns = [
+        {
+            "id": "BAD-SEV",
+            "pattern": r"\bbad_word\b",
+            "reason": "not allowed",
+            "fix": "remove it",
+            "severity": "INVALID_SEVERITY",
+        }
+    ]
+    _make_skill(tmp_path, "Contains bad_word here.\n")
+    files = _ADAPTER.collect(tmp_path)
+    violations = run(files, cfg, tmp_path)
+    assert len(violations) == 1
+    assert violations[0].severity == Severity.ERROR

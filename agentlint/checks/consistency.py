@@ -35,7 +35,10 @@ def run(
         group_id = group.get("id", "AL-C01")
         raw_pattern = group.get("pattern", "")
         file_list = group.get("files", [])
-        severity = Severity(group.get("severity", "error"))
+        try:
+            severity = Severity(group.get("severity", "error"))
+        except ValueError:
+            severity = Severity.ERROR
 
         if not raw_pattern or len(file_list) < 2:
             continue

@@ -62,7 +62,10 @@ def run(
             continue
 
         exclude: set[str] = set(rule.get("exclude_keys", []))
-        severity = Severity(rule.get("severity", "error"))
+        try:
+            severity = Severity(rule.get("severity", "error"))
+        except ValueError:
+            severity = Severity.ERROR
 
         source_keys = _extract_keys(source_path) - exclude
         template_keys = _extract_keys(template_path)

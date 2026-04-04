@@ -95,3 +95,12 @@ def test_e01_severity_from_config(tmp_path: Path):
     cfg.config_parity[0]["severity"] = "warning"
     violations = run([], cfg, tmp_path)
     assert violations[0].severity == Severity.WARNING
+
+
+def test_e01_invalid_severity_falls_back_to_error(tmp_path: Path):
+    """An unrecognised severity string in config_parity falls back to ERROR."""
+    cfg = _setup(tmp_path, "A=1\nB=2\n", "A=\n")
+    cfg.config_parity[0]["severity"] = "INVALID_SEVERITY"
+    violations = run([], cfg, tmp_path)
+    assert len(violations) == 1
+    assert violations[0].severity == Severity.ERROR

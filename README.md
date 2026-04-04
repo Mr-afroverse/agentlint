@@ -152,6 +152,9 @@ forbidden_patterns:
     fix: "Use '7-stage' and add a pointer to orchestrator.py."
     severity: error
 
+# How many lines above a number agentlint looks for a source pointer (default 15)
+number_source_lookback: 10
+
 # Adjust trigger-overlap sensitivity (0.0–1.0, default 0.5)
 trigger_overlap_threshold: 0.6
 

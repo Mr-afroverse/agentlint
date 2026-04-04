@@ -40,17 +40,6 @@ DEFAULT_SOURCE_MARKERS: list[str] = [
 
 @dataclass
 class Config:
-    # ------------------------------------------------------------------ paths
-    instruction_dirs: list[str] = field(
-        default_factory=lambda: [".github/skills", ".cursor/rules"]
-    )
-    dispatch_files: list[str] = field(
-        default_factory=lambda: [
-            ".github/copilot-instructions.md",
-            ".cursorrules",
-            ".windsurfrules",
-        ]
-    )
     # Where to look when resolving source file references like `app/services/foo.py`
     source_roots: list[str] = field(default_factory=lambda: [".", "src"])
 
@@ -138,8 +127,6 @@ class Config:
             "output_format",
             "fail_on_warnings",
             "forbidden_patterns_mode",
-            "instruction_dirs",
-            "dispatch_files",
             "source_roots",
             "ignore_paths",
             "extra_paths",

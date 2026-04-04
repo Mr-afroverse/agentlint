@@ -24,6 +24,15 @@ All notable changes to agentlint are documented here.
   list alongside the existing `files_scanned` count, making CI audit logs actionable.
 - 34 new tests (value extraction: 14, ground truth: 15, coverage: 5). Test count: 121 → 155.
 
+### Fixed
+- `Severity()` crash on malformed `severity` values in `forbidden_patterns`, `config_parity`,
+  and `consistency_groups` config rules — now falls back to `ERROR` instead of raising
+  `ValueError`. Three regression tests added (test count: 155 → 158).
+- Removed dead `instruction_dirs` and `dispatch_files` config fields that were declared,
+  parsed, and stored but never read by any adapter or check. Any YAML with these keys
+  is silently ignored (no behaviour change).
+- Documented `number_source_lookback` in the README config example.
+
 ### Changed
 - AL-V01 is wired into both `_UNIQUE_CHECKS` (instruction files) and `_DOCS_CHECKS`
   (extra_paths docs), so value annotations are validated across all scanned content.
