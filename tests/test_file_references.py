@@ -12,6 +12,7 @@ Covers:
   - Fail: correct line number reported
   - Fail: duplicate path in same file produces one violation
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -29,7 +30,9 @@ def _make_repo(root: Path, skill_content: str) -> None:
     skill_dir = root / ".github" / "skills" / "test-skill"
     skill_dir.mkdir(parents=True)
     dispatch = "| `t` | `.github/skills/test-skill/SKILL.md` | test |\n"
-    (root / ".github" / "copilot-instructions.md").write_text(dispatch, encoding="utf-8")
+    (root / ".github" / "copilot-instructions.md").write_text(
+        dispatch, encoding="utf-8"
+    )
     (skill_dir / "SKILL.md").write_text(skill_content, encoding="utf-8")
 
 
@@ -52,7 +55,9 @@ def test_f01_pass_file_exists_on_disk(tmp_path: Path):
 
 def test_f01_pass_template_strings_skipped(tmp_path: Path):
     """`{placeholder}` expressions are not treated as concrete file paths."""
-    _make_repo(tmp_path, "Use `app/services/{service_name}.py` as the naming pattern.\n")
+    _make_repo(
+        tmp_path, "Use `app/services/{service_name}.py` as the naming pattern.\n"
+    )
     files = _ADAPTER.collect(tmp_path)
     violations = run(files, Config(), tmp_path)
     assert [v for v in violations if v.check_id == "AL-F01"] == []
@@ -167,12 +172,7 @@ def test_f01_fail_missing_reference_fires_warning(tmp_path: Path):
 
 def test_f01_fail_correct_line_number_reported(tmp_path: Path):
     """The violation reports the exact line where the missing path appears."""
-    content = (
-        "Line one.\n"
-        "Line two.\n"
-        "Read `app/services/missing.py` here.\n"
-        "Line four.\n"
-    )
+    content = "Line one.\nLine two.\nRead `app/services/missing.py` here.\nLine four.\n"
     _make_repo(tmp_path, content)
     files = _ADAPTER.collect(tmp_path)
     violations = run(files, Config(), tmp_path)
@@ -191,7 +191,9 @@ def test_f01_fail_deduplicates_same_path(tmp_path: Path):
     files = _ADAPTER.collect(tmp_path)
     violations = run(files, Config(), tmp_path)
     f01 = [v for v in violations if v.check_id == "AL-F01"]
-    assert len(f01) == 1, "Same missing path referenced twice should yield one violation"
+    assert len(f01) == 1, (
+        "Same missing path referenced twice should yield one violation"
+    )
 
 
 def test_f01_fail_multiple_distinct_missing_paths(tmp_path: Path):

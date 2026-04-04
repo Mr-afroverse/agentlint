@@ -2,6 +2,38 @@
 
 All notable changes to agentlint are documented here.
 
+## [0.2.0] — 2026-04-04
+
+### Added
+- **`extra_paths` config key** — glob patterns for additional documentation files
+  (e.g. `docs/**/*.md`) to scan with AL-P* (forbidden patterns) and AL-F01 (file
+  references). Files matched by `extra_paths` are tagged with the new `Role.DOCS` role
+  and de-duplicated against adapter-collected files.
+- **AL-E01 `config_parity` check** — verifies that every key in a source config file
+  (e.g. `.env`) also appears in its template (e.g. `.env.example`). Configured via
+  `config_parity` rules in `.agentlint.yml`. Supports `exclude_keys` for intentional
+  omissions.
+- **AL-C01 `consistency_groups` check** — extracts a regex capture group from multiple
+  files and flags any file whose value disagrees with the consensus. Configured via
+  `consistency_groups` rules in `.agentlint.yml`.
+- **`Role.DOCS` enum value** — new instruction-file role for general documentation
+  collected via `extra_paths`.
+- 24 new tests (config parity, consistency groups, extra paths integration).
+  Test count: 97 → 121.
+
+### Changed
+- AL-F01 (file references) now also runs against `Role.DOCS` files (previously
+  `Role.SKILL` only).
+- Exit-code 2 guard now skips when standalone checks (AL-E01, AL-C01) produce
+  violations, so config-only runs report findings instead of falsely claiming
+  "no files found".
+
+### Fixed
+- 4 pre-existing ruff lint findings in test files (unused imports, unused variable).
+- Codebase-wide formatting pass via `ruff format` (20 files).
+
+---
+
 ## [0.1.1] — 2026-04-02
 
 ### Added
@@ -53,7 +85,7 @@ All notable changes to agentlint are documented here.
   yaml.YAMLError` in `config.py`.
 
 ### Changed
-- PyPI distribution name changed from `agentlint` to `agentlint-cli` (the name `agentlint`
+- PyPI distribution name changed from `agentlint` to `instruction-lint` (the name `agentlint`
   was already registered on PyPI by an unrelated package). Python module name, CLI binary,
   and import paths are unchanged.
 - `action.yml` adapter description updated to include `windsurf`.

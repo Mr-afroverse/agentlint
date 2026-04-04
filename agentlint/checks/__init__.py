@@ -1,4 +1,6 @@
 from agentlint.checks import (
+    config_parity,
+    consistency,
     dispatch_coverage,
     file_references,
     forbidden_patterns,
@@ -7,6 +9,8 @@ from agentlint.checks import (
 )
 
 __all__ = [
+    "config_parity",
+    "consistency",
     "dispatch_coverage",
     "file_references",
     "forbidden_patterns",

@@ -10,7 +10,7 @@ Thank you for your interest. This guide covers how to add new adapters and check
 git clone https://github.com/Mr-afroverse/agentlint
 cd agentlint
 pip install -e ".[dev]"
-pytest   # all 77 tests should pass
+pytest   # all 121 tests should pass
 ```
 
 ---
@@ -57,7 +57,7 @@ from .myadapter import MyAdapter
 
 3. Register in `agentlint/cli.py` `_ADAPTERS` list:
 ```python
-_ADAPTERS = [CopilotAdapter(), CursorAdapter(), WindsurfAdapter(), MyAdapter()]
+_ADAPTERS = [CopilotAdapter(), CursorAdapter(), WindsurfAdapter(), AiderAdapter(), ContinueAdapter(), MyAdapter()]
 ```
 
 4. Add to the `--adapter` Choice in `cli.py` and add tests in `tests/test_cli.py`.
@@ -73,10 +73,11 @@ Checks receive a list of `InstructionFile` objects and return `Violation` object
 ```python
 from pathlib import Path
 from ..models import InstructionFile, Violation, Severity
+from ..config import Config
 
 CHECK_ID = "AL-X01"
 
-def run(files: list[InstructionFile], root: Path, config=None) -> list[Violation]:
+def run(files: list[InstructionFile], config: Config, root: Path) -> list[Violation]:
     violations = []
     for f in files:
         for i, line in enumerate(f.lines, 1):

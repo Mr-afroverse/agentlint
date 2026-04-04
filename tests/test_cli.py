@@ -17,12 +17,12 @@ beyond tmp_path. Covers:
   - --adapter copilot: explicit adapter on matching repo
   - --version: reports 0.1.0
 """
+
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
-import pytest
 from click.testing import CliRunner
 
 from agentlint.cli import main
@@ -39,9 +39,13 @@ def _make_clean_copilot_repo(root: Path) -> None:
     """Minimal Copilot repo — all checks pass."""
     skill_dir = root / ".github" / "skills" / "my-skill"
     skill_dir.mkdir(parents=True)
-    (skill_dir / "SKILL.md").write_text("# My Skill\nWrite tests first.\n", encoding="utf-8")
+    (skill_dir / "SKILL.md").write_text(
+        "# My Skill\nWrite tests first.\n", encoding="utf-8"
+    )
     dispatch = "| `my-skill` | `.github/skills/my-skill/SKILL.md` | any feature |\n"
-    (root / ".github" / "copilot-instructions.md").write_text(dispatch, encoding="utf-8")
+    (root / ".github" / "copilot-instructions.md").write_text(
+        dispatch, encoding="utf-8"
+    )
 
 
 def _make_error_copilot_repo(root: Path) -> None:
@@ -53,7 +57,9 @@ def _make_error_copilot_repo(root: Path) -> None:
         "| `my-skill` | `.github/skills/my-skill/SKILL.md` | any feature |\n"
         "| `ghost` | `.github/skills/ghost/SKILL.md` | ghost skill |\n"
     )
-    (root / ".github" / "copilot-instructions.md").write_text(dispatch, encoding="utf-8")
+    (root / ".github" / "copilot-instructions.md").write_text(
+        dispatch, encoding="utf-8"
+    )
 
 
 def _make_warning_copilot_repo(root: Path) -> None:
@@ -64,7 +70,9 @@ def _make_warning_copilot_repo(root: Path) -> None:
         "The score must be ≥ 90% to pass.\n", encoding="utf-8"
     )
     dispatch = "| `my-skill` | `.github/skills/my-skill/SKILL.md` | scoring |\n"
-    (root / ".github" / "copilot-instructions.md").write_text(dispatch, encoding="utf-8")
+    (root / ".github" / "copilot-instructions.md").write_text(
+        dispatch, encoding="utf-8"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -153,7 +161,14 @@ def test_cli_format_json_valid_and_complete(tmp_path: Path):
     assert result.exit_code == 0
 
     data = json.loads(result.output)  # raises json.JSONDecodeError if invalid
-    for key in ("grade", "adapter", "files_scanned", "errors", "warnings", "violations"):
+    for key in (
+        "grade",
+        "adapter",
+        "files_scanned",
+        "errors",
+        "warnings",
+        "violations",
+    ):
         assert key in data, f"JSON output missing key: {key!r}"
 
     assert data["grade"] == "A"
@@ -171,7 +186,15 @@ def test_cli_format_json_contains_violation_details(tmp_path: Path):
     assert len(data["violations"]) >= 1
 
     v = data["violations"][0]
-    for field in ("check_id", "severity", "file", "line", "message", "fix_hint", "auto_fixable"):
+    for field in (
+        "check_id",
+        "severity",
+        "file",
+        "line",
+        "message",
+        "fix_hint",
+        "auto_fixable",
+    ):
         assert field in v, f"Violation JSON missing field: {field!r}"
 
 
@@ -193,7 +216,9 @@ def test_cli_config_explicit_custom_filename_loaded(tmp_path: Path):
     assert result_no_cfg.exit_code == 0
 
     # With --config pointing directly to the custom file: fail_on_warnings applied → exit 1
-    result_with_cfg = _RUNNER.invoke(main, ["--config", str(config_file), str(tmp_path)])
+    result_with_cfg = _RUNNER.invoke(
+        main, ["--config", str(config_file), str(tmp_path)]
+    )
     assert result_with_cfg.exit_code == 1
 
 
@@ -217,6 +242,7 @@ def test_cli_adapter_copilot_explicit_on_copilot_repo(tmp_path: Path):
 
 def test_cli_version_shows_0_1_0():
     from agentlint import __version__
+
     result = _RUNNER.invoke(main, ["--version"])
     assert result.exit_code == 0
     assert __version__ in result.output
@@ -264,7 +290,9 @@ def test_cli_windsurf_explicit_adapter(tmp_path: Path):
 def test_cli_windsurf_rules_dir_collected(tmp_path: Path):
     """Files under .windsurf/rules/ are collected and scanned."""
     _make_windsurf_with_rules_dir(tmp_path)
-    result = _RUNNER.invoke(main, ["--adapter", "windsurf", "--format", "json", str(tmp_path)])
+    result = _RUNNER.invoke(
+        main, ["--adapter", "windsurf", "--format", "json", str(tmp_path)]
+    )
     assert result.exit_code == 0
     data = json.loads(result.output)
     assert data["files_scanned"] >= 1
@@ -344,6 +372,7 @@ def test_watch_no_watchdog_prints_install_hint(tmp_path: Path, monkeypatch):
     _make_clean_copilot_repo(tmp_path)
 
     import builtins
+
     real_import = builtins.__import__
 
     def _patched(name, *args, **kwargs):
@@ -416,7 +445,9 @@ def test_cli_aider_explicit_adapter(tmp_path: Path):
 def test_cli_aider_rules_dir_collected(tmp_path: Path):
     """Files under .aider/rules/ are collected and scanned."""
     _make_aider_with_rules_dir(tmp_path)
-    result = _RUNNER.invoke(main, ["--adapter", "aider", "--format", "json", str(tmp_path)])
+    result = _RUNNER.invoke(
+        main, ["--adapter", "aider", "--format", "json", str(tmp_path)]
+    )
     assert result.exit_code == 0
     data = json.loads(result.output)
     assert data["files_scanned"] >= 1
@@ -472,7 +503,9 @@ def test_cli_continue_explicit_adapter(tmp_path: Path):
 def test_cli_continue_rules_dir_collected(tmp_path: Path):
     """Files under .continue/rules/ are collected and scanned."""
     _make_continue_with_rules_dir(tmp_path)
-    result = _RUNNER.invoke(main, ["--adapter", "continue", "--format", "json", str(tmp_path)])
+    result = _RUNNER.invoke(
+        main, ["--adapter", "continue", "--format", "json", str(tmp_path)]
+    )
     assert result.exit_code == 0
     data = json.loads(result.output)
     assert data["files_scanned"] >= 1

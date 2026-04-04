@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from agentlint.adapters.copilot import CopilotAdapter
 from agentlint.checks.number_sourcing import run
 from agentlint.config import Config

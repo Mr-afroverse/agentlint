@@ -18,18 +18,31 @@ from agentlint.adapters.copilot import CopilotAdapter
 from agentlint.adapters.continudev import ContinueAdapter
 from agentlint.adapters.cursor import CursorAdapter
 from agentlint.adapters.windsurf import WindsurfAdapter
-from agentlint.checks import dispatch_coverage, file_references, forbidden_patterns, number_sourcing, trigger_overlap
+from agentlint.checks import (
+    dispatch_coverage,
+    file_references,
+    forbidden_patterns,
+    number_sourcing,
+    trigger_overlap,
+)
+from agentlint.checks import config_parity, consistency
 from agentlint.config import Config
-from agentlint.models import LintResult
+from agentlint.models import InstructionFile, LintResult, Role
 from agentlint import report as rep
 
-_ADAPTERS = [CopilotAdapter(), CursorAdapter(), WindsurfAdapter(), AiderAdapter(), ContinueAdapter()]
+_ADAPTERS = [
+    CopilotAdapter(),
+    CursorAdapter(),
+    WindsurfAdapter(),
+    AiderAdapter(),
+    ContinueAdapter(),
+]
 # Unique checks — each function runs once per adapter.
 _UNIQUE_CHECKS = [
-    ("dispatch-coverage",  dispatch_coverage.run),
-    ("file-references",    file_references.run),
-    ("number-sourcing",    number_sourcing.run),
-    ("trigger-overlap",    trigger_overlap.run),
+    ("dispatch-coverage", dispatch_coverage.run),
+    ("file-references", file_references.run),
+    ("number-sourcing", number_sourcing.run),
+    ("trigger-overlap", trigger_overlap.run),
     ("forbidden-patterns", forbidden_patterns.run),
 ]
 
@@ -37,16 +50,79 @@ _UNIQUE_CHECKS = [
 _WATCH_EXTENSIONS = frozenset({".md", ".mdc", ".yml", ".yaml"})
 
 
+# Checks that also run against extra_paths documentation files.
+_DOCS_CHECKS = [
+    ("file-references", file_references.run),
+    ("forbidden-patterns", forbidden_patterns.run),
+]
+
+# Standalone checks driven entirely by config (not by adapter-collected files).
+_STANDALONE_CHECKS = [
+    ("config-parity", config_parity.run),
+    ("consistency-groups", consistency.run),
+]
+
+
+def _collect_extra(
+    root: Path, config: Config, already: set[Path]
+) -> list[InstructionFile]:
+    """Glob extra_paths, dedup against *already*-collected files, return DOCS-role files."""
+    extra: list[InstructionFile] = []
+    for pattern in config.extra_paths:
+        for path in sorted(root.glob(pattern)):
+            resolved = path.resolve()
+            if not path.is_file() or resolved in already:
+                continue
+            # Respect ignore_paths
+            rel = path.relative_to(root).as_posix()
+            if any(ign in rel for ign in config.ignore_paths):
+                continue
+            already.add(resolved)
+            try:
+                content = path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            extra.append(
+                InstructionFile(
+                    path=path,
+                    content=content,
+                    lines=content.splitlines(),
+                    adapter="docs",
+                    role=Role.DOCS,
+                    metadata={},
+                )
+            )
+    return extra
+
+
 def _collect_and_lint(root: Path, active: list, config: Config) -> tuple[int, list]:
     """Run all checks against *active* adapters. Returns (total_files, violations)."""
-    all_violations = []
+    all_violations: list = []
     total_files = 0
+    already_seen: set[Path] = set()
+
     for a in active:
         instruction_files = a.collect(root)
         total_files += len(instruction_files)
+        for f in instruction_files:
+            already_seen.add(f.path.resolve())
         for check_key, check_fn in _UNIQUE_CHECKS:
             if config.checks.get(check_key, True):
                 all_violations.extend(check_fn(instruction_files, config, root))
+
+    # Extra paths — run only docs-safe checks (AL-P*, AL-F01)
+    if config.extra_paths:
+        extra_files = _collect_extra(root, config, already_seen)
+        total_files += len(extra_files)
+        for check_key, check_fn in _DOCS_CHECKS:
+            if config.checks.get(check_key, True):
+                all_violations.extend(check_fn(extra_files, config, root))
+
+    # Standalone config-driven checks (AL-E01, AL-C01)
+    for check_key, check_fn in _STANDALONE_CHECKS:
+        if config.checks.get(check_key, True):
+            all_violations.extend(check_fn([], config, root))
+
     return total_files, all_violations
 
 
@@ -54,13 +130,15 @@ def _collect_and_lint(root: Path, active: list, config: Config) -> tuple[int, li
 @click.version_option(__version__, "-V", "--version")
 @click.argument("path", default=".", type=click.Path(exists=True, file_okay=False))
 @click.option(
-    "--format", "output_format",
+    "--format",
+    "output_format",
     default=None,
     type=click.Choice(["text", "json", "sarif", "badge"]),
     help="Output format (default: text). 'badge' writes agentlint-badge.svg to disk.",
 )
 @click.option(
-    "--config", "config_path",
+    "--config",
+    "config_path",
     default=None,
     type=click.Path(exists=True),
     help="Path to .agentlint.yml config file.",
@@ -128,8 +206,10 @@ def main(
     #   auto  → run detect() on every adapter, include those that match
     #   named → trust the user, skip detect() (same contract as eslint --parser)
     active = [
-        a for a in _ADAPTERS
-        if (adapter == "auto" and a.detect(root)) or (adapter != "auto" and a.name == adapter)
+        a
+        for a in _ADAPTERS
+        if (adapter == "auto" and a.detect(root))
+        or (adapter != "auto" and a.name == adapter)
     ]
 
     total_files, all_violations = _collect_and_lint(root, active, config)
@@ -139,12 +219,14 @@ def main(
         for v in all_violations:
             if v.check_id in config.severity_overrides:
                 from agentlint.models import Severity as _Sev
+
                 new_sev = config.severity_overrides[v.check_id]
                 v.severity = _Sev.ERROR if new_sev == "error" else _Sev.WARNING
 
     # Guard: exit 2 when nothing was collected — covers both "no adapter matched"
     # in auto mode, and "adapter named but repo has no instruction files yet".
-    if total_files == 0:
+    # Skip guard if standalone checks (AL-E01, AL-C01) found violations.
+    if total_files == 0 and not all_violations:
         if adapter == "auto":
             click.echo(
                 "[agentlint] No supported instruction format detected.\n"
@@ -177,7 +259,9 @@ def main(
         svg = rep.format_badge(result)
         badge_path = root / "agentlint-badge.svg"
         badge_path.write_text(svg, encoding="utf-8")
-        click.echo(f"[agentlint] Badge written to {badge_path.as_posix()}  (Grade: {result.grade()})")
+        click.echo(
+            f"[agentlint] Badge written to {badge_path.as_posix()}  (Grade: {result.grade()})"
+        )
     else:
         click.echo(rep.format_text(result, root))
 
@@ -212,7 +296,7 @@ def _watch_loop(root: Path, active: list, config: Config) -> None:
     """Block until Ctrl+C, re-linting whenever a watched file changes."""
     try:
         from watchdog.events import FileSystemEventHandler  # type: ignore[import]
-        from watchdog.observers import Observer             # type: ignore[import]
+        from watchdog.observers import Observer  # type: ignore[import]
     except ImportError:
         click.echo(
             "[agentlint] --watch requires watchdog.\n"
@@ -253,7 +337,10 @@ def _watch_loop(root: Path, active: list, config: Config) -> None:
 
     class _Handler(FileSystemEventHandler):
         def _maybe_rerun(self, event) -> None:
-            if not event.is_directory and Path(event.src_path).suffix in _WATCH_EXTENSIONS:
+            if (
+                not event.is_directory
+                and Path(event.src_path).suffix in _WATCH_EXTENSIONS
+            ):
                 _schedule_rerun()
 
         def on_modified(self, event) -> None:

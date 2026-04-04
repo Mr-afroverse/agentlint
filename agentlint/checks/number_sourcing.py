@@ -22,8 +22,8 @@ from agentlint.models import InstructionFile, Role, Severity, Violation
 # Intentionally does NOT match bare `≥ N` or `≤ N` without `%` — those are
 # non-scoring values (connection counts, process limits, etc.).
 _THRESHOLD_RE = re.compile(
-    r"\b\d+\s*%"                        # "90%", "90 %"
-    r"|[≥≤]\s*\d+(?:\.\d+)?\s*%"       # "≥ 90%", "≤ 3.0%"
+    r"\b\d+\s*%"  # "90%", "90 %"
+    r"|[≥≤]\s*\d+(?:\.\d+)?\s*%"  # "≥ 90%", "≤ 3.0%"
     r"|(?<![a-zA-Z])[<>]=?\s*\d+\s*%"  # "< 60%", ">= 80%"
 )
 

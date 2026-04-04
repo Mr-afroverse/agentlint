@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from agentlint.adapters.copilot import CopilotAdapter
 from agentlint.checks.dispatch_coverage import run
 from agentlint.config import Config
@@ -37,7 +35,9 @@ def test_d01_fail_missing_skill_file(tmp_path: Path):
         "| `ghost` | `.github/skills/ghost/SKILL.md` | Ghost skill |\n"
     )
     (tmp_path / ".github" / "copilot-instructions.md").write_text(dispatch)
-    (tmp_path / ".github" / "skills" / "eudr-standards" / "SKILL.md").write_text("# EUDR")
+    (tmp_path / ".github" / "skills" / "eudr-standards" / "SKILL.md").write_text(
+        "# EUDR"
+    )
 
     files = _collect(tmp_path)
     violations = run(files, Config(), tmp_path)

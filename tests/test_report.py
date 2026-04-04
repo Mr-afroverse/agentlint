@@ -9,6 +9,7 @@ Covers:
   - LintResult.grade(): boundary cases A through F
   - _rel() resilience: path outside repo root does not raise
 """
+
 from __future__ import annotations
 
 import json
@@ -125,7 +126,9 @@ def test_format_text_shows_line_numbers(tmp_path: Path):
 
 def test_format_text_grade_b_one_error_one_file(tmp_path: Path):
     """1 error / 1 file → score = 80 → Grade B."""
-    text = format_text(_result(tmp_path, violations=[_error(tmp_path)], files_scanned=1), tmp_path)
+    text = format_text(
+        _result(tmp_path, violations=[_error(tmp_path)], files_scanned=1), tmp_path
+    )
     assert "Grade: B" in text
 
 
@@ -149,7 +152,14 @@ def test_format_json_is_valid_json(tmp_path: Path):
 
 def test_format_json_top_level_keys_present(tmp_path: Path):
     data = json.loads(format_json(_result(tmp_path), tmp_path))
-    for key in ("grade", "adapter", "files_scanned", "errors", "warnings", "violations"):
+    for key in (
+        "grade",
+        "adapter",
+        "files_scanned",
+        "errors",
+        "warnings",
+        "violations",
+    ):
         assert key in data, f"JSON output missing key: {key!r}"
 
 
@@ -169,7 +179,15 @@ def test_format_json_violation_fields_present(tmp_path: Path):
     data = json.loads(format_json(_result(tmp_path, violations=[v]), tmp_path))
     assert len(data["violations"]) == 1
     vj = data["violations"][0]
-    for field in ("check_id", "severity", "file", "line", "message", "fix_hint", "auto_fixable"):
+    for field in (
+        "check_id",
+        "severity",
+        "file",
+        "line",
+        "message",
+        "fix_hint",
+        "auto_fixable",
+    ):
         assert field in vj, f"Violation JSON missing field: {field!r}"
 
 
@@ -285,6 +303,7 @@ def test_format_text_path_outside_root_does_not_raise(tmp_path: Path):
 def test_format_badge_is_svg(tmp_path: Path):
     """format_badge returns a string that starts with <svg."""
     from agentlint.report import format_badge
+
     r = _result(tmp_path, files_scanned=2)
     svg = format_badge(r)
     assert svg.startswith("<svg")
@@ -294,6 +313,7 @@ def test_format_badge_is_svg(tmp_path: Path):
 def test_format_badge_grade_a_embedded(tmp_path: Path):
     """Grade A is embedded in the badge SVG for a clean result."""
     from agentlint.report import format_badge
+
     r = _result(tmp_path, files_scanned=1)
     assert "Grade: A" in format_badge(r)
 
@@ -301,6 +321,7 @@ def test_format_badge_grade_a_embedded(tmp_path: Path):
 def test_format_badge_grade_f_embedded(tmp_path: Path):
     """Grade F is embedded in the badge SVG for a heavily failing result."""
     from agentlint.report import format_badge
+
     errors = [_error(tmp_path, line=i) for i in range(1, 4)]
     r = _result(tmp_path, violations=errors, files_scanned=1)
     assert r.grade() == "F"
@@ -310,12 +331,15 @@ def test_format_badge_grade_f_embedded(tmp_path: Path):
 def test_format_badge_colours_differ_by_grade(tmp_path: Path):
     """Grade A and Grade F badges use different fill colours."""
     from agentlint.report import format_badge
+
     a_svg = format_badge(_result(tmp_path, files_scanned=1))
     errors = [_error(tmp_path, line=i) for i in range(1, 4)]
     f_svg = format_badge(_result(tmp_path, violations=errors, files_scanned=1))
     # Extract the first fill colour from each (the value-rect fill)
     import re
+
     def _color(svg: str) -> str:
         m = re.search(r'fill="(#[0-9a-fA-F]{6})"', svg)
         return m.group(1) if m else ""
+
     assert _color(a_svg) != _color(f_svg)

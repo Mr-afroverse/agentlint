@@ -47,7 +47,7 @@ def test_custom_forbidden_pattern(tmp_path: Path):
     )
     _make_skill(tmp_path, "Please do not use this pattern.\n")
     files = _ADAPTER.collect(tmp_path)
-    violations = run(files, Config(), tmp_path)
+    run(files, Config(), tmp_path)  # default config has no custom pattern
     # Custom pattern added to instance, not global Config()
     violations2 = run(files, cfg, tmp_path)
     my = [v for v in violations2 if v.check_id == "MY001"]

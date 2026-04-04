@@ -15,9 +15,7 @@ class CursorAdapter(BaseAdapter):
     name = "cursor"
 
     def detect(self, root: Path) -> bool:
-        return (root / ".cursorrules").exists() or (
-            root / ".cursor" / "rules"
-        ).exists()
+        return (root / ".cursorrules").exists() or (root / ".cursor" / "rules").exists()
 
     def collect(self, root: Path) -> list[InstructionFile]:
         files: list[InstructionFile] = []

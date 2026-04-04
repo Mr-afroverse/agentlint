@@ -13,7 +13,8 @@ class Severity(str, Enum):
 
 class Role(str, Enum):
     DISPATCH = "dispatch"  # the main instructions / dispatch file
-    SKILL = "skill"        # an individual skill / rule file
+    SKILL = "skill"  # an individual skill / rule file
+    DOCS = "docs"  # general documentation file (via extra_paths)
 
 
 @dataclass
@@ -23,9 +24,11 @@ class InstructionFile:
     path: Path
     content: str
     lines: list[str]
-    adapter: str           # "copilot" | "cursor" | "generic"
+    adapter: str  # "copilot" | "cursor" | "generic"
     role: Role
-    metadata: dict = field(default_factory=dict)  # parsed frontmatter (name, description, …)
+    metadata: dict = field(
+        default_factory=dict
+    )  # parsed frontmatter (name, description, …)
 
 
 @dataclass

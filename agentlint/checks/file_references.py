@@ -45,7 +45,9 @@ def run(
     known_files: list[str] = []
     try:
         for f in root.rglob("*"):
-            if f.is_file() and not any(part.startswith(".") for part in f.relative_to(root).parts):
+            if f.is_file() and not any(
+                part.startswith(".") for part in f.relative_to(root).parts
+            ):
                 rel = f.relative_to(root).as_posix()
                 if _FILE_REF_RE.match(rel):
                     known_files.append(rel)
@@ -54,7 +56,7 @@ def run(
 
     violations: list[Violation] = []
 
-    for sf in [f for f in files if f.role == Role.SKILL]:
+    for sf in [f for f in files if f.role in (Role.SKILL, Role.DOCS)]:
         seen: set[str] = set()
         in_code = False
         for lineno, line in enumerate(sf.lines, start=1):
@@ -70,7 +72,9 @@ def run(
                     continue
                 seen.add(ref)
                 if not _exists(ref):
-                    suggestions = difflib.get_close_matches(ref, known_files, n=1, cutoff=0.6)
+                    suggestions = difflib.get_close_matches(
+                        ref, known_files, n=1, cutoff=0.6
+                    )
                     if suggestions:
                         fix_hint = (
                             f"Did you mean '{suggestions[0]}'? "

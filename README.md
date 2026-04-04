@@ -39,7 +39,7 @@ Or as a **pre-commit hook** (recommended — runs on every commit, zero maintena
 # .pre-commit-config.yaml
 repos:
   - repo: https://github.com/Mr-afroverse/agentlint
-    rev: v0.1.1
+    rev: v0.2.0
     hooks:
       - id: agentlint
 ```
@@ -56,8 +56,10 @@ repos:
 | AL-N01 | Threshold numbers → have a source pointer | Warning | ✓ |
 | AL-T01 | Trigger descriptions → no significant overlap | Warning | ✓ |
 | AL-P* | Forbidden patterns (built-in defaults + configurable) | Error | ✓ |
+| AL-E01 | `.env` vs `.env.example` key parity | Error | — |
+| AL-C01 | Cross-file value consistency groups | Error | — |
 
-All six checks work out of the box with no configuration.
+The first six checks work out of the box with no configuration. AL-E01 and AL-C01 are config-driven — add rules in `.agentlint.yml` to activate them.
 
 ---
 
@@ -165,6 +167,26 @@ fail_on_warnings: true
 ignore_paths:
   - "archive/"
   - "docs/health/"
+
+# ── v0.2 features ────────────────────────────────────────────
+
+# Glob patterns for extra documentation files to scan with AL-P* and AL-F01
+extra_paths:
+  - "docs/**/*.md"
+  - "*.md"
+
+# .env vs .env.example key parity (AL-E01)
+config_parity:
+  - source: ".env"
+    template: ".env.example"
+    severity: error
+
+# Cross-file value consistency groups (AL-C01)
+consistency_groups:
+  - id: test-count
+    pattern: '\b(\d+)\s+passed'
+    files: ["README.md", "CONTRIBUTING.md", "docs/RELEASE.md"]
+    severity: error
 ```
 
 ### Replace built-in forbidden patterns entirely
@@ -205,7 +227,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: Mr-afroverse/agentlint@v0.1.1
+      - uses: Mr-afroverse/agentlint@v0.2.0
 ```
 
 ### Action inputs
@@ -213,14 +235,14 @@ jobs:
 | Input | Default | Description |
 |-------|---------|-------------|
 | `path` | `.` | Directory to scan |
-| `format` | `text` | Output format — `text`, `json`, or `sarif` |
-| `adapter` | `auto` | Force adapter — `copilot`, `cursor`, `windsurf`, or `auto` |
+| `format` | `text` | Output format — `text`, `json`, `sarif`, or `badge` |
+| `adapter` | `auto` | Force adapter — `copilot`, `cursor`, `windsurf`, `aider`, `continue`, or `auto` |
 | `fail-on-warnings` | `false` | Exit 1 when warnings are present |
 
 Example — fail the build on warnings:
 
 ```yaml
-- uses: Mr-afroverse/agentlint@v0.1.1
+- uses: Mr-afroverse/agentlint@v0.2.0
   with:
     fail-on-warnings: true
 ```

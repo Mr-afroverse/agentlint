@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-__version__ = "0.1.1"
+__version__ = "0.2.0"
 __all__ = ["__version__"]
 
 # Bundled templates directory — used by `agentlint init` to copy SKILL_HEALTH_CHECK.md

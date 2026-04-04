@@ -205,6 +205,6 @@ def format_badge(result: LintResult) -> str:
         f'<text x="{label_x}" y="14">{label}</text>'
         f'<text x="{value_x}" y="15" fill="#010101" fill-opacity=".3">{value}</text>'
         f'<text x="{value_x}" y="14">{value}</text>'
-        f'</g>'
-        f'</svg>'
+        f"</g>"
+        f"</svg>"
     )

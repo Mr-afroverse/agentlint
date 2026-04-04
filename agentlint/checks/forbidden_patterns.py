@@ -44,7 +44,9 @@ def run(
                             severity=severity,
                             file=f.path,
                             line=lineno,
-                            message=pattern_def.get("reason", "Forbidden pattern matched."),
+                            message=pattern_def.get(
+                                "reason", "Forbidden pattern matched."
+                            ),
                             fix_hint=pattern_def.get("fix", ""),
                         )
                     )

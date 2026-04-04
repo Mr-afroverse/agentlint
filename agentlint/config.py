@@ -83,7 +83,7 @@ class Config:
     forbidden_patterns_mode: str = "extend"
 
     # ------------------------------------------------------------ reporting
-    output_format: str = "text"   # "text" | "json" | "sarif" | "badge"
+    output_format: str = "text"  # "text" | "json" | "sarif" | "badge"
     fail_on_warnings: bool = False
 
     # -------------------------------------------------- severity overrides
@@ -93,6 +93,16 @@ class Config:
 
     # ------------------------------------------------------------ ignores
     ignore_paths: list[str] = field(default_factory=lambda: ["archive/"])
+
+    # ---------------------------------------- v0.2 — documentation drift scope
+    # Glob patterns for extra files to scan with AL-P* and AL-F01.
+    extra_paths: list[str] = field(default_factory=list)
+
+    # .env vs .env.example key parity checks (AL-E01)
+    config_parity: list[dict] = field(default_factory=list)
+
+    # Cross-file value consistency groups (AL-C01)
+    consistency_groups: list[dict] = field(default_factory=list)
 
     # ----------------------------------------------------------------- load
     @classmethod
@@ -126,6 +136,7 @@ class Config:
             "dispatch_files",
             "source_roots",
             "ignore_paths",
+            "extra_paths",
         }
         for key in scalar_keys:
             if key in data:
@@ -140,7 +151,8 @@ class Config:
             raw = data["severity_overrides"]
             if isinstance(raw, dict):
                 cfg.severity_overrides = {
-                    k: v for k, v in raw.items()
+                    k: v
+                    for k, v in raw.items()
                     if isinstance(v, str) and v in ("error", "warning")
                 }
 
@@ -157,5 +169,15 @@ class Config:
                 for p in data["forbidden_patterns"]:
                     if p.get("id") not in existing_ids:
                         cfg.forbidden_patterns.append(p)
+
+        # Config parity rules (AL-E01)
+        if "config_parity" in data and isinstance(data["config_parity"], list):
+            cfg.config_parity = data["config_parity"]
+
+        # Consistency groups (AL-C01)
+        if "consistency_groups" in data and isinstance(
+            data["consistency_groups"], list
+        ):
+            cfg.consistency_groups = data["consistency_groups"]
 
         return cfg

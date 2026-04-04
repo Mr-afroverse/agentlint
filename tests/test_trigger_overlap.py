@@ -12,10 +12,7 @@ _ADAPTER = CopilotAdapter()
 def _build(root: Path, skills: dict[str, str], dispatch_rows: list[str]) -> None:
     """skills = {folder_name: skill_content}, dispatch_rows = table body rows."""
     skills_dir = root / ".github" / "skills"
-    header = (
-        "| Skill | File | Trigger |\n"
-        "|-------|------|--------|\n"
-    )
+    header = "| Skill | File | Trigger |\n|-------|------|--------|\n"
     rows = "\n".join(dispatch_rows)
     (root / ".github").mkdir(parents=True, exist_ok=True)
     (root / ".github" / "copilot-instructions.md").write_text(

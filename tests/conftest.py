@@ -1,4 +1,5 @@
 """Shared fixtures for agentlint tests."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -52,7 +53,9 @@ Write the test first. Then implement. Always.
 @pytest.fixture
 def repo_root(tmp_path: Path) -> Path:
     """Minimal valid Copilot repo — all checks should pass."""
-    _build_copilot_repo(tmp_path, DISPATCH_CONTENT, SKILL_EUDR_CONTENT, SKILL_TDD_CONTENT)
+    _build_copilot_repo(
+        tmp_path, DISPATCH_CONTENT, SKILL_EUDR_CONTENT, SKILL_TDD_CONTENT
+    )
     return tmp_path
 
 
@@ -65,7 +68,9 @@ def _build_copilot_repo(
     skills = root / ".github" / "skills"
     (skills / "eudr-standards").mkdir(parents=True)
     (skills / "tdd-fastapi").mkdir(parents=True)
-    (root / ".github" / "copilot-instructions.md").write_text(dispatch, encoding="utf-8")
+    (root / ".github" / "copilot-instructions.md").write_text(
+        dispatch, encoding="utf-8"
+    )
     (skills / "eudr-standards" / "SKILL.md").write_text(skill_eudr, encoding="utf-8")
     (skills / "tdd-fastapi" / "SKILL.md").write_text(skill_tdd, encoding="utf-8")
     return root
