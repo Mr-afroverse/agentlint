@@ -99,6 +99,18 @@ class Config:
     # Opt-in: detect file paths inside ASCII tree diagrams for AL-F01
     tree_diagram_paths: bool = False
 
+    # Opt-in: also scan tree diagrams inside ``` code fences for AL-F01
+    # Requires tree_diagram_paths: true to have any effect.
+    tree_diagram_fenced: bool = False
+
+    # AL-TOK01: warn when estimated token count of an instruction file exceeds
+    # this budget.  0 = disabled (default).
+    token_budget: int = 0
+
+    # AL-D04: required role names — every role must have at least one SKILL file.
+    # Role is matched against skill `name` frontmatter or parent directory name.
+    required_roles: list[str] = field(default_factory=list)
+
     # ----------------------------------------------------------------- load
     @classmethod
     def load(cls, root: Path) -> "Config":
@@ -128,12 +140,23 @@ class Config:
             "fail_on_warnings",
             "forbidden_patterns_mode",
             "source_roots",
-            "ignore_paths",
             "extra_paths",
+            "token_budget",
         }
         for key in scalar_keys:
             if key in data:
                 setattr(cfg, key, data[key])
+
+        # ignore_paths: each entry is either a plain string or a dict with
+        # a required "path" key and an optional "reason" key (ignored at runtime).
+        if "ignore_paths" in data:
+            raw_paths = data["ignore_paths"]
+            if isinstance(raw_paths, list):
+                cfg.ignore_paths = [
+                    (entry["path"] if isinstance(entry, dict) else str(entry))
+                    for entry in raw_paths
+                    if isinstance(entry, (str, dict))
+                ]
 
         # Merge dicts
         if "checks" in data:
@@ -182,5 +205,13 @@ class Config:
         # Tree diagram path detection for AL-F01 (opt-in)
         if "tree_diagram_paths" in data:
             cfg.tree_diagram_paths = bool(data["tree_diagram_paths"])
+
+        # Fenced tree diagram scanning for AL-F01 (opt-in)
+        if "tree_diagram_fenced" in data:
+            cfg.tree_diagram_fenced = bool(data["tree_diagram_fenced"])
+
+        # Required role names (AL-D04)
+        if "required_roles" in data and isinstance(data["required_roles"], list):
+            cfg.required_roles = [str(r) for r in data["required_roles"]]
 
         return cfg

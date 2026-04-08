@@ -5,7 +5,10 @@ Matches paths like `app/services/foo.py`, `src/utils/bar.ts`, etc.
 Glob patterns and template strings (containing `{` or `*`) are ignored.
 
 When ``tree_diagram_paths`` is enabled in config, also checks filenames
-inside ASCII tree diagrams (├── / └── prefixed lines).
+inside ASCII tree diagrams (├── / └── prefixed lines) outside code fences.
+
+When ``tree_diagram_fenced`` is additionally enabled, tree diagrams inside
+``` code fences are also scanned (opt-in, off by default).
 """
 
 from __future__ import annotations
@@ -62,7 +65,7 @@ def run(
 
     # Collect all filenames in project (for tree diagram checking).
     known_filenames: set[str] = set()
-    if config.tree_diagram_paths:
+    if config.tree_diagram_paths or config.tree_diagram_fenced:
         try:
             for f in root.rglob("*"):
                 if f.is_file() and not any(
@@ -81,38 +84,42 @@ def run(
             # Track code fence state
             if _CODE_FENCE_RE.match(line.strip()):
                 in_code = not in_code
-            if in_code:
-                continue
 
-            for m in _FILE_REF_RE.finditer(line):
-                ref = m.group(1)
-                if ref in seen or "{" in ref or "*" in ref:
-                    continue
-                seen.add(ref)
-                if not _exists(ref):
-                    suggestions = difflib.get_close_matches(
-                        ref, known_files, n=1, cutoff=0.6
-                    )
-                    if suggestions:
-                        fix_hint = (
-                            f"Did you mean '{suggestions[0]}'? "
-                            "Update the path or create the missing file."
+            # File-ref scanning is always skipped inside fences.
+            if not in_code:
+                for m in _FILE_REF_RE.finditer(line):
+                    ref = m.group(1)
+                    if ref in seen or "{" in ref or "*" in ref:
+                        continue
+                    seen.add(ref)
+                    if not _exists(ref):
+                        suggestions = difflib.get_close_matches(
+                            ref, known_files, n=1, cutoff=0.6
                         )
-                    else:
-                        fix_hint = "Update the path or create the missing file."
-                    violations.append(
-                        Violation(
-                            check_id="AL-F01",
-                            severity=Severity.WARNING,
-                            file=sf.path,
-                            line=lineno,
-                            message=f"Referenced file not found on disk: `{ref}`",
-                            fix_hint=fix_hint,
+                        if suggestions:
+                            fix_hint = (
+                                f"Did you mean '{suggestions[0]}'? "
+                                "Update the path or create the missing file."
+                            )
+                        else:
+                            fix_hint = "Update the path or create the missing file."
+                        violations.append(
+                            Violation(
+                                check_id="AL-F01",
+                                severity=Severity.WARNING,
+                                file=sf.path,
+                                line=lineno,
+                                message=f"Referenced file not found on disk: `{ref}`",
+                                fix_hint=fix_hint,
+                            )
                         )
-                    )
 
-            # Tree diagram paths (opt-in)
-            if config.tree_diagram_paths:
+            # Tree diagram paths: outside fences (tree_diagram_paths) OR
+            # inside fences too (tree_diagram_fenced).
+            scan_tree = (config.tree_diagram_paths and not in_code) or (
+                config.tree_diagram_fenced and in_code
+            )
+            if scan_tree:
                 for m in _TREE_FILE_RE.finditer(line):
                     fname = m.group(1)
                     if fname in seen:

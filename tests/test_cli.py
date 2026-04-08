@@ -592,3 +592,264 @@ def test_cli_format_badge_error_repo(tmp_path: Path):
     content = badge.read_text(encoding="utf-8")
     assert content.startswith("<svg"), "Badge file should be valid SVG"
     assert "agentlint" in content
+
+
+# ---------------------------------------------------------------------------
+# UX-06: ignore_paths dict entries with optional reason field
+# ---------------------------------------------------------------------------
+
+
+def test_ignore_paths_dict_entry_suppresses_violations(tmp_path: Path):
+    """ignore_paths accepts {path:, reason:} dicts in addition to plain strings."""
+    from agentlint.config import Config
+
+    cfg_file = tmp_path / ".agentlint.yml"
+    cfg_file.write_text(
+        "ignore_paths:\n"
+        "  - archive/\n"
+        "  - path: docs/health/\n"
+        "    reason: generated files are always stale\n",
+        encoding="utf-8",
+    )
+    cfg = Config.load(tmp_path)
+    # Both plain string and dict entry must be normalised to path strings
+    assert "archive/" in cfg.ignore_paths
+    assert "docs/health/" in cfg.ignore_paths
+    assert all(isinstance(p, str) for p in cfg.ignore_paths)
+
+
+def test_ignore_paths_plain_strings_still_work(tmp_path: Path):
+    """Plain string ignore_paths entries continue to work after UX-06 change."""
+    from agentlint.config import Config
+
+    cfg_file = tmp_path / ".agentlint.yml"
+    cfg_file.write_text(
+        "ignore_paths:\n  - archive/\n  - docs/legacy/\n",
+        encoding="utf-8",
+    )
+    cfg = Config.load(tmp_path)
+    assert cfg.ignore_paths == ["archive/", "docs/legacy/"]
+
+
+# ---------------------------------------------------------------------------
+# UX-03: --baseline / --update-baseline
+# ---------------------------------------------------------------------------
+
+
+def test_update_baseline_writes_file(tmp_path: Path):
+    """--update-baseline writes a JSON baseline file and exits 0."""
+    _make_error_copilot_repo(tmp_path)
+    baseline = tmp_path / ".baseline.json"
+    result = _RUNNER.invoke(main, ["--update-baseline", str(baseline), str(tmp_path)])
+    assert result.exit_code == 0
+    assert baseline.exists(), "Baseline file should have been created"
+    assert "Baseline written" in result.output
+
+
+def test_update_baseline_json_structure(tmp_path: Path):
+    """Baseline JSON has _comment and violations keys with expected fields."""
+    _make_error_copilot_repo(tmp_path)
+    baseline = tmp_path / ".baseline.json"
+    _RUNNER.invoke(main, ["--update-baseline", str(baseline), str(tmp_path)])
+
+    data = json.loads(baseline.read_text(encoding="utf-8"))
+    assert "_comment" in data
+    assert "violations" in data
+    assert isinstance(data["violations"], list)
+    if data["violations"]:
+        v = data["violations"][0]
+        assert "check_id" in v
+        assert "file" in v
+        assert "message" in v
+
+
+def test_baseline_suppresses_existing_violations(tmp_path: Path):
+    """--baseline suppresses violations already in the baseline; clean exit 0."""
+    _make_error_copilot_repo(tmp_path)
+    baseline = tmp_path / ".baseline.json"
+    # First capture the violations
+    _RUNNER.invoke(main, ["--update-baseline", str(baseline), str(tmp_path)])
+
+    # Second run with --baseline: all violations are suppressed → exit 0
+    result = _RUNNER.invoke(main, ["--baseline", str(baseline), str(tmp_path)])
+    assert result.exit_code == 0
+    assert "PASS" in result.output
+
+
+def test_baseline_reports_suppressed_count(tmp_path: Path):
+    """--baseline prints how many violations were suppressed."""
+    _make_error_copilot_repo(tmp_path)
+    baseline = tmp_path / ".baseline.json"
+    _RUNNER.invoke(main, ["--update-baseline", str(baseline), str(tmp_path)])
+
+    result = _RUNNER.invoke(main, ["--baseline", str(baseline), str(tmp_path)])
+    # Suppression info goes to stderr; CliRunner mixes it in by default
+    combined = result.output
+    assert "suppressed" in combined.lower()
+
+
+def test_baseline_missing_file_acts_as_empty(tmp_path: Path):
+    """If --baseline points to a nonexistent file, all violations are reported normally."""
+    _make_error_copilot_repo(tmp_path)
+    missing = tmp_path / "nonexistent.json"
+    result = _RUNNER.invoke(main, ["--baseline", str(missing), str(tmp_path)])
+    # All violations present → exit 1
+    assert result.exit_code == 1
+    assert "AL-D01" in result.output
+
+
+def test_update_baseline_clean_repo_records_zero(tmp_path: Path):
+    """--update-baseline on a clean repo records zero violations."""
+    _make_clean_copilot_repo(tmp_path)
+    baseline = tmp_path / ".baseline.json"
+    result = _RUNNER.invoke(main, ["--update-baseline", str(baseline), str(tmp_path)])
+    assert result.exit_code == 0
+    data = json.loads(baseline.read_text(encoding="utf-8"))
+    assert data["violations"] == []
+
+
+def test_baseline_only_new_violations_reported(tmp_path: Path):
+    """After baseline, only violations NOT in baseline appear in output."""
+    # Create a repo with one AL-D01 violation
+    _make_error_copilot_repo(tmp_path)
+    baseline = tmp_path / ".baseline.json"
+    _RUNNER.invoke(main, ["--update-baseline", str(baseline), str(tmp_path)])
+
+    # Run again: all existing violations suppressed → exit 0
+    result = _RUNNER.invoke(main, ["--baseline", str(baseline), str(tmp_path)])
+    assert result.exit_code == 0
+
+
+# ---------------------------------------------------------------------------
+# UX-07: --format html
+# ---------------------------------------------------------------------------
+
+
+def test_cli_format_html_writes_file(tmp_path: Path):
+    """--format html writes agentlint-report.html to the scanned directory."""
+    _make_clean_copilot_repo(tmp_path)
+    result = _RUNNER.invoke(main, ["--format", "html", str(tmp_path)])
+    assert result.exit_code == 0
+    report = tmp_path / "agentlint-report.html"
+    assert report.exists(), "agentlint-report.html should be created"
+    content = report.read_text(encoding="utf-8")
+    assert "<!DOCTYPE html>" in content
+
+
+def test_cli_format_html_grade_in_output(tmp_path: Path):
+    """--format html echoes the grade and report path to stdout."""
+    _make_clean_copilot_repo(tmp_path)
+    result = _RUNNER.invoke(main, ["--format", "html", str(tmp_path)])
+    assert "HTML report written" in result.output
+    assert "Grade: A" in result.output
+
+
+def test_cli_format_html_contains_violations(tmp_path: Path):
+    """HTML report includes check IDs when violations exist."""
+    _make_error_copilot_repo(tmp_path)
+    result = _RUNNER.invoke(main, ["--format", "html", str(tmp_path)])
+    assert result.exit_code == 1
+    report = tmp_path / "agentlint-report.html"
+    content = report.read_text(encoding="utf-8")
+    assert "AL-D01" in content
+
+
+def test_cli_format_html_pass_shows_no_violations(tmp_path: Path):
+    """HTML report for a clean repo shows the no-violations message."""
+    _make_clean_copilot_repo(tmp_path)
+    _RUNNER.invoke(main, ["--format", "html", str(tmp_path)])
+    report = tmp_path / "agentlint-report.html"
+    content = report.read_text(encoding="utf-8")
+    assert "No violations found" in content
+
+
+def test_cli_format_html_has_filter_buttons(tmp_path: Path):
+    """HTML report includes filter buttons for severity filtering."""
+    _make_error_copilot_repo(tmp_path)
+    _RUNNER.invoke(main, ["--format", "html", str(tmp_path)])
+    report = tmp_path / "agentlint-report.html"
+    content = report.read_text(encoding="utf-8")
+    assert "filter-btn" in content
+    assert "applyFilter" in content
+
+
+# ---------------------------------------------------------------------------
+# UX-05: agentlint --init wizard (generates .agentlint.yml)
+# ---------------------------------------------------------------------------
+
+
+def test_init_creates_agentlint_yml(tmp_path: Path):
+    """--init generates a .agentlint.yml when one does not exist."""
+    result = _RUNNER.invoke(main, ["--init", str(tmp_path)])
+    assert result.exit_code == 0
+    cfg = tmp_path / ".agentlint.yml"
+    assert cfg.exists(), ".agentlint.yml should be created by --init"
+    content = cfg.read_text(encoding="utf-8")
+    assert "source_roots" in content
+    assert "ignore_paths" in content
+
+
+def test_init_does_not_overwrite_existing_agentlint_yml(tmp_path: Path):
+    """--init does not overwrite an existing .agentlint.yml."""
+    cfg = tmp_path / ".agentlint.yml"
+    original = "# my custom config\nfail_on_warnings: true\n"
+    cfg.write_text(original, encoding="utf-8")
+
+    result = _RUNNER.invoke(main, ["--init", str(tmp_path)])
+    assert result.exit_code == 0
+    assert cfg.read_text(encoding="utf-8") == original
+    assert "not overwriting" in result.output
+
+
+def test_init_includes_src_when_present(tmp_path: Path):
+    """--init adds src to source_roots when a src/ directory exists."""
+    (tmp_path / "src").mkdir()
+    _RUNNER.invoke(main, ["--init", str(tmp_path)])
+    cfg = tmp_path / ".agentlint.yml"
+    content = cfg.read_text(encoding="utf-8")
+    assert '"src"' in content
+
+
+def test_init_excludes_src_when_absent(tmp_path: Path):
+    """--init does not add src if src/ directory is absent."""
+    _RUNNER.invoke(main, ["--init", str(tmp_path)])
+    cfg = tmp_path / ".agentlint.yml"
+    content = cfg.read_text(encoding="utf-8")
+    assert '"src"' not in content
+
+
+def test_init_hints_readme_when_present(tmp_path: Path):
+    """--init includes a commented README.md extra_paths hint when README.md exists."""
+    (tmp_path / "README.md").write_text("# Project", encoding="utf-8")
+    _RUNNER.invoke(main, ["--init", str(tmp_path)])
+    cfg = tmp_path / ".agentlint.yml"
+    content = cfg.read_text(encoding="utf-8")
+    assert "README.md" in content
+
+
+def test_init_hints_docs_when_present(tmp_path: Path):
+    """--init includes a commented docs/**/*.md hint when docs/ exists."""
+    (tmp_path / "docs").mkdir()
+    _RUNNER.invoke(main, ["--init", str(tmp_path)])
+    cfg = tmp_path / ".agentlint.yml"
+    content = cfg.read_text(encoding="utf-8")
+    assert "docs/**/*.md" in content
+
+
+def test_init_generated_yml_is_valid_yaml(tmp_path: Path):
+    """The generated .agentlint.yml loads cleanly with Config.load()."""
+    import yaml
+    from agentlint.config import Config
+
+    (tmp_path / "src").mkdir()
+    (tmp_path / "README.md").write_text("# Project", encoding="utf-8")
+    _RUNNER.invoke(main, ["--init", str(tmp_path)])
+
+    cfg_file = tmp_path / ".agentlint.yml"
+    content = cfg_file.read_text(encoding="utf-8")
+    # All non-comment lines must produce valid YAML
+    parsed = yaml.safe_load(content)
+    assert isinstance(parsed, dict)
+    # And Config.load() must not raise
+    cfg = Config.load(tmp_path)
+    assert cfg is not None

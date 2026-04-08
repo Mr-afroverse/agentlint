@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 from agentlint import __version__
@@ -209,3 +210,200 @@ def format_badge(result: LintResult) -> str:
         f"</g>"
         f"</svg>"
     )
+
+
+def _html_escape(text: str) -> str:
+    """Minimal HTML escaping for report content."""
+    return (
+        text.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+    )
+
+
+def format_html(result: LintResult, root: Path) -> str:
+    """Return a self-contained HTML report page."""
+    grade = result.grade()
+    grade_color = {
+        "A": "#44cc11",
+        "B": "#97ca00",
+        "C": "#dfb317",
+        "D": "#fe7d37",
+        "F": "#e05d44",
+    }.get(grade, "#9f9f9f")
+
+    errors = len(result.errors)
+    warnings = len(result.warnings)
+    total = len(result.violations)
+    timestamp = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+
+    # Group violations by file
+    by_file: dict[Path, list[Violation]] = {}
+    for v in result.violations:
+        by_file.setdefault(v.file, []).append(v)
+
+    # Build violation rows HTML
+    rows_html = ""
+    for filepath, viols in sorted(by_file.items()):
+        rel = _html_escape(_rel(filepath, root))
+        rows_html += '<div class="file-group">'
+        rows_html += f'<h3 class="file-name">{rel}</h3>'
+        rows_html += (
+            '<table class="violations-table">'
+            "<thead><tr>"
+            "<th>Severity</th><th>Check</th><th>Line</th>"
+            "<th>Message</th><th>Fix hint</th>"
+            "</tr></thead><tbody>"
+        )
+        for v in viols:
+            sev = v.severity.value
+            sev_icon = {
+                "error": "&#x2716;",
+                "warning": "&#x26a0;",
+                "info": "&#x2139;",
+            }.get(sev, "&bull;")
+            fix = _html_escape(v.fix_hint) if v.fix_hint else ""
+            rows_html += (
+                f'<tr class="row-{sev}" data-severity="{sev}">'
+                f'<td><span class="badge sev-{sev}">{sev_icon} {sev}</span></td>'
+                f"<td><code>{_html_escape(v.check_id)}</code></td>"
+                f"<td>{v.line or ''}</td>"
+                f"<td>{_html_escape(v.message)}</td>"
+                f'<td class="fix-col">{fix}</td>'
+                f"</tr>"
+            )
+        rows_html += "</tbody></table></div>"
+
+    if not result.violations:
+        rows_html = '<p class="pass-msg">&#x2714; No violations found.</p>'
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>agentlint report</title>
+<style>
+:root {{
+  --bg: #ffffff; --fg: #1a1a2e; --card: #f8f9fa;
+  --border: #dee2e6; --code-bg: #f1f3f5; --muted: #6c757d;
+}}
+@media (prefers-color-scheme: dark) {{
+  :root {{
+    --bg: #0d1117; --fg: #c9d1d9; --card: #161b22;
+    --border: #30363d; --code-bg: #21262d; --muted: #8b949e;
+  }}
+}}
+* {{ box-sizing: border-box; margin: 0; padding: 0; }}
+body {{
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: var(--bg); color: var(--fg);
+  padding: 2rem; max-width: 1100px; margin: 0 auto;
+}}
+header {{ display: flex; align-items: center; gap: 1.5rem; margin-bottom: 2rem; flex-wrap: wrap; }}
+.grade-badge {{
+  font-size: 2rem; font-weight: 800; padding: 0.4rem 1rem;
+  border-radius: 8px; color: #fff; background: {grade_color};
+  white-space: nowrap;
+}}
+.summary {{ font-size: 0.9rem; color: var(--muted); line-height: 1.6; }}
+.summary strong {{ color: var(--fg); }}
+.filters {{
+  margin-bottom: 1.5rem; display: flex; gap: 0.6rem;
+  flex-wrap: wrap; align-items: center;
+}}
+.filter-label {{ font-size: 0.85rem; color: var(--muted); margin-right: 0.25rem; }}
+.filter-btn {{
+  padding: 0.3rem 0.8rem; border: 1px solid var(--border);
+  border-radius: 20px; cursor: pointer; background: var(--card);
+  color: var(--fg); font-size: 0.82rem; transition: all 0.15s;
+}}
+.filter-btn:hover {{ border-color: #0d6efd; }}
+.filter-btn.active {{ border-color: #0d6efd; background: #0d6efd; color: #fff; }}
+.file-group {{
+  border: 1px solid var(--border); border-radius: 8px;
+  margin-bottom: 1.25rem; overflow: hidden;
+}}
+.file-name {{
+  font-family: ui-monospace, "Cascadia Code", monospace; font-size: 0.875rem;
+  padding: 0.6rem 1rem; background: var(--card);
+  border-bottom: 1px solid var(--border); font-weight: 600;
+}}
+.violations-table {{ width: 100%; border-collapse: collapse; font-size: 0.875rem; }}
+.violations-table th {{
+  text-align: left; padding: 0.5rem 0.75rem; background: var(--card);
+  border-bottom: 1px solid var(--border); font-weight: 600;
+  font-size: 0.75rem; text-transform: uppercase;
+  letter-spacing: 0.05em; color: var(--muted);
+}}
+.violations-table td {{
+  padding: 0.55rem 0.75rem; border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}}
+.violations-table tr:last-child td {{ border-bottom: none; }}
+.badge {{
+  display: inline-block; padding: 0.18rem 0.5rem;
+  border-radius: 4px; font-size: 0.75rem; font-weight: 700;
+}}
+.sev-error {{ background: #ffebe9; color: #cf222e; }}
+.sev-warning {{ background: #fff8c5; color: #9a6700; }}
+.sev-info {{ background: #ddf4ff; color: #0969da; }}
+@media (prefers-color-scheme: dark) {{
+  .sev-error {{ background: #3d1c1c; color: #f85149; }}
+  .sev-warning {{ background: #2d2200; color: #e3b341; }}
+  .sev-info {{ background: #031d2e; color: #58a6ff; }}
+}}
+code {{
+  font-family: ui-monospace, "Cascadia Code", monospace; font-size: 0.85em;
+  background: var(--code-bg); padding: 0.1em 0.35em; border-radius: 3px;
+}}
+.fix-col {{ color: var(--muted); font-size: 0.82rem; }}
+.pass-msg {{
+  text-align: center; padding: 3rem; font-size: 1.1rem;
+  color: #44cc11; font-weight: 600;
+}}
+.hidden {{ display: none !important; }}
+footer {{
+  margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--border);
+  font-size: 0.8rem; color: var(--muted); text-align: center;
+}}
+</style>
+</head>
+<body>
+<header>
+  <span class="grade-badge">Grade&nbsp;{grade}</span>
+  <div>
+    <div style="font-size:1.05rem;font-weight:600;margin-bottom:0.25rem">agentlint report</div>
+    <div class="summary">
+      Generated {timestamp} &nbsp;&bull;&nbsp;
+      <strong>{result.files_scanned}</strong> file(s) scanned &nbsp;&bull;&nbsp;
+      <strong>{errors}</strong> error(s) &nbsp;&bull;&nbsp;
+      <strong>{warnings}</strong> warning(s)
+    </div>
+  </div>
+</header>
+<div class="filters">
+  <span class="filter-label">Filter:</span>
+  <button class="filter-btn active" data-filter="all" onclick="applyFilter('all')">All ({total})</button>
+  <button class="filter-btn" data-filter="error" onclick="applyFilter('error')">Errors ({errors})</button>
+  <button class="filter-btn" data-filter="warning" onclick="applyFilter('warning')">Warnings ({warnings})</button>
+</div>
+{rows_html}
+<footer>Generated by <strong>agentlint {__version__}</strong></footer>
+<script>
+function applyFilter(sev) {{
+  document.querySelectorAll('.filter-btn').forEach(function(b) {{
+    b.classList.toggle('active', b.dataset.filter === sev);
+  }});
+  document.querySelectorAll('tr[data-severity]').forEach(function(r) {{
+    r.classList.toggle('hidden', sev !== 'all' && r.dataset.severity !== sev);
+  }});
+  document.querySelectorAll('.file-group').forEach(function(g) {{
+    var vis = g.querySelectorAll('tr[data-severity]:not(.hidden)');
+    g.classList.toggle('hidden', vis.length === 0 && {str(bool(result.violations)).lower()});
+  }});
+}}
+</script>
+</body>
+</html>"""

@@ -1,15 +1,19 @@
 from agentlint.adapters.aider import AiderAdapter
 from agentlint.adapters.base import BaseAdapter
+from agentlint.adapters.claudecode import ClaudeCodeAdapter
 from agentlint.adapters.copilot import CopilotAdapter
 from agentlint.adapters.continudev import ContinueAdapter
 from agentlint.adapters.cursor import CursorAdapter
+from agentlint.adapters.gemini import GeminiAdapter
 from agentlint.adapters.windsurf import WindsurfAdapter
 
 __all__ = [
     "AiderAdapter",
     "BaseAdapter",
+    "ClaudeCodeAdapter",
     "CopilotAdapter",
     "ContinueAdapter",
     "CursorAdapter",
+    "GeminiAdapter",
     "WindsurfAdapter",
 ]

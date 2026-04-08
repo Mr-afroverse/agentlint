@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import json
 import sys
 from pathlib import Path
 
@@ -14,16 +15,25 @@ if sys.stdout.encoding and sys.stdout.encoding.lower().replace("-", "") != "utf8
 
 from agentlint import __version__
 from agentlint.adapters.aider import AiderAdapter
+from agentlint.adapters.claudecode import ClaudeCodeAdapter
 from agentlint.adapters.copilot import CopilotAdapter
 from agentlint.adapters.continudev import ContinueAdapter
 from agentlint.adapters.cursor import CursorAdapter
+from agentlint.adapters.gemini import GeminiAdapter
 from agentlint.adapters.windsurf import WindsurfAdapter
 from agentlint.checks import (
+    circular_refs,
+    dead_anchors,
     dispatch_coverage,
     file_references,
     forbidden_patterns,
+    inverse_claims,
     number_sourcing,
+    role_coverage,
+    secret_detection,
+    token_budget,
     trigger_overlap,
+    vague_instructions,
     value_extraction,
 )
 from agentlint.checks import config_parity, consistency, ground_truth
@@ -37,15 +47,24 @@ _ADAPTERS = [
     WindsurfAdapter(),
     AiderAdapter(),
     ContinueAdapter(),
+    ClaudeCodeAdapter(),
+    GeminiAdapter(),
 ]
 # Unique checks — each function runs once per adapter.
 _UNIQUE_CHECKS = [
     ("dispatch-coverage", dispatch_coverage.run),
+    ("circular-refs", circular_refs.run),
+    ("role-coverage", role_coverage.run),
     ("file-references", file_references.run),
     ("number-sourcing", number_sourcing.run),
     ("trigger-overlap", trigger_overlap.run),
     ("forbidden-patterns", forbidden_patterns.run),
     ("value-extraction", value_extraction.run),
+    ("secret-detection", secret_detection.run),
+    ("inverse-claims", inverse_claims.run),
+    ("dead-anchors", dead_anchors.run),
+    ("vague-instructions", vague_instructions.run),
+    ("token-budget", token_budget.run),
 ]
 
 # File extensions that can contain instruction content worth watching.
@@ -57,6 +76,9 @@ _DOCS_CHECKS = [
     ("file-references", file_references.run),
     ("forbidden-patterns", forbidden_patterns.run),
     ("value-extraction", value_extraction.run),
+    ("secret-detection", secret_detection.run),
+    ("inverse-claims", inverse_claims.run),
+    ("dead-anchors", dead_anchors.run),
 ]
 
 # Standalone checks driven entirely by config (not by adapter-collected files).
@@ -151,8 +173,8 @@ def _collect_and_lint(
     "--format",
     "output_format",
     default=None,
-    type=click.Choice(["text", "json", "sarif", "badge"]),
-    help="Output format (default: text). 'badge' writes agentlint-badge.svg to disk.",
+    type=click.Choice(["text", "json", "sarif", "badge", "html"]),
+    help="Output format (default: text). 'badge' writes agentlint-badge.svg; 'html' writes agentlint-report.html.",
 )
 @click.option(
     "--config",
@@ -164,7 +186,18 @@ def _collect_and_lint(
 @click.option(
     "--adapter",
     default="auto",
-    type=click.Choice(["copilot", "cursor", "windsurf", "aider", "continue", "auto"]),
+    type=click.Choice(
+        [
+            "copilot",
+            "cursor",
+            "windsurf",
+            "aider",
+            "continue",
+            "claudecode",
+            "gemini",
+            "auto",
+        ]
+    ),
     help="Force a specific adapter (default: auto-detect).",
 )
 @click.option(
@@ -185,6 +218,20 @@ def _collect_and_lint(
     default=False,
     help="Re-run on file changes. Requires: pip install 'instruction-lint[watch]'.",
 )
+@click.option(
+    "--baseline",
+    "baseline_path",
+    default=None,
+    type=click.Path(),
+    help="Baseline file — suppress violations already recorded there. See --update-baseline.",
+)
+@click.option(
+    "--update-baseline",
+    "update_baseline_path",
+    default=None,
+    type=click.Path(),
+    help="Snapshot current violations to PATH and exit 0.",
+)
 def main(
     path: str,
     output_format: str | None,
@@ -193,6 +240,8 @@ def main(
     fail_on_warnings: bool,
     init: bool,
     watch: bool,
+    baseline_path: str | None,
+    update_baseline_path: str | None,
 ) -> None:
     """agentlint — audit AI coding assistant instruction files.
 
@@ -270,6 +319,39 @@ def main(
         scanned_files=[_rel_str(p, root) for p in scanned_paths],
     )
 
+    # --update-baseline: snapshot and exit before any filtering or output
+    if update_baseline_path:
+        bp = Path(update_baseline_path)
+        _save_baseline(bp, result.violations, root)
+        click.echo(
+            f"[agentlint] Baseline written to {bp.as_posix()}"
+            f"  ({len(result.violations)} violation(s) recorded)"
+        )
+        return
+
+    # --baseline: suppress violations already in the baseline
+    if baseline_path:
+        bp = Path(baseline_path)
+        known = _load_baseline(bp)
+        new_violations = [
+            v
+            for v in result.violations
+            if (v.check_id, _rel_str(v.file, root), v.message) not in known
+        ]
+        suppressed = len(result.violations) - len(new_violations)
+        result = LintResult(
+            root=result.root,
+            files_scanned=result.files_scanned,
+            violations=new_violations,
+            adapter=result.adapter,
+            scanned_files=result.scanned_files,
+        )
+        if suppressed:
+            click.echo(
+                f"[agentlint] Baseline: {suppressed} pre-existing violation(s) suppressed.",
+                err=True,
+            )
+
     if config.output_format == "json":
         click.echo(rep.format_json(result, root))
     elif config.output_format == "sarif":
@@ -281,6 +363,13 @@ def main(
         click.echo(
             f"[agentlint] Badge written to {badge_path.as_posix()}  (Grade: {result.grade()})"
         )
+    elif config.output_format == "html":
+        html = rep.format_html(result, root)
+        report_path = root / "agentlint-report.html"
+        report_path.write_text(html, encoding="utf-8")
+        click.echo(
+            f"[agentlint] HTML report written to {report_path.as_posix()}  (Grade: {result.grade()})"
+        )
     else:
         click.echo(rep.format_text(result, root))
 
@@ -290,6 +379,38 @@ def main(
 
     if not result.passed or (config.fail_on_warnings and result.warnings):
         sys.exit(1)
+
+
+def _load_baseline(path: Path) -> set[tuple[str, str, str]]:
+    """Load a baseline JSON file. Returns a set of (check_id, file_rel, message) tuples."""
+    if not path.exists():
+        return set()
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return set()
+    return {
+        (v["check_id"], v["file"], v["message"])
+        for v in data.get("violations", [])
+        if isinstance(v, dict) and "check_id" in v and "file" in v and "message" in v
+    }
+
+
+def _save_baseline(path: Path, violations: list, root: Path) -> None:
+    """Serialize violations to a baseline JSON file."""
+    entries = [
+        {
+            "check_id": v.check_id,
+            "file": _rel_str(v.file, root),
+            "message": v.message,
+        }
+        for v in violations
+    ]
+    payload = {
+        "_comment": "agentlint baseline — commit to suppress pre-existing violations",
+        "violations": entries,
+    }
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
 def _run_init(root: Path) -> None:
@@ -309,6 +430,65 @@ def _run_init(root: Path) -> None:
     else:
         dest.write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
         click.echo(f"[agentlint] Created {dest}")
+
+    _run_config_wizard(root)
+
+
+def _run_config_wizard(root: Path) -> None:
+    """Generate a starter .agentlint.yml by probing the repo layout."""
+    cfg_file = root / ".agentlint.yml"
+    if cfg_file.exists():
+        click.echo(f"[agentlint] {cfg_file} already exists — not overwriting.")
+        return
+
+    # Probe filesystem
+    has_src = (root / "src").is_dir()
+    has_app = (root / "app").is_dir()
+    has_docs = (root / "docs").is_dir()
+    has_readme = (root / "README.md").exists()
+
+    source_root_lines = ['  - "."']
+    if has_src:
+        source_root_lines.append('  - "src"')
+    if has_app:
+        source_root_lines.append('  - "app"')
+
+    extra_path_hints: list[str] = []
+    if has_readme:
+        extra_path_hints.append('#   - "README.md"')
+    if has_docs:
+        extra_path_hints.append('#   - "docs/**/*.md"')
+
+    extra_paths_block = "# extra_paths:\n"
+    if extra_path_hints:
+        extra_paths_block += "\n".join(extra_path_hints) + "\n"
+
+    source_roots_yaml = "\n".join(source_root_lines)
+
+    yaml_out = (
+        "# .agentlint.yml -- generated by agentlint --init\n"
+        "# Review, adjust, and commit this file.\n"
+        "# Full reference: https://github.com/Mr-afroverse/agentlint#configuration\n"
+        "\n"
+        "source_roots:\n"
+        f"{source_roots_yaml}\n"
+        "\n"
+        "ignore_paths:\n"
+        '  - "archive/"\n'
+        '  - "node_modules/"\n'
+        '  - ".venv/"\n'
+        "\n"
+        "fail_on_warnings: false\n"
+        "\n"
+        "# Lint extra documentation files with AL-P* and AL-F01.\n"
+        f"{extra_paths_block}"
+        "\n"
+        "# Warn when an instruction file exceeds this estimated token count (0 = disabled).\n"
+        "# token_budget: 8000\n"
+    )
+
+    cfg_file.write_text(yaml_out, encoding="utf-8")
+    click.echo(f"[agentlint] Created {cfg_file}")
 
 
 def _watch_loop(root: Path, active: list, config: Config) -> None:

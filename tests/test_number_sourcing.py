@@ -76,3 +76,61 @@ def test_n01_heuristic_annotation_passes(tmp_path: Path):
     files = _ADAPTER.collect(tmp_path)
     violations = run(files, Config(), tmp_path)
     assert [v for v in violations if v.check_id == "AL-N01"] == []
+
+
+# ---------------------------------------------------------------------------
+# AL-N02 — written-out percentage claims
+# ---------------------------------------------------------------------------
+
+
+def test_n02_fail_written_percent(tmp_path: Path):
+    content = "This model achieves 40 percent accuracy on the task.\n"
+    _make_skill(tmp_path, content)
+    files = _ADAPTER.collect(tmp_path)
+    violations = run(files, Config(), tmp_path)
+    n02 = [v for v in violations if v.check_id == "AL-N02"]
+    assert len(n02) == 1
+    assert n02[0].line == 1
+
+
+def test_n02_fail_per_cent_spaced(tmp_path: Path):
+    content = "Reduces false positives by 30 per cent.\n"
+    _make_skill(tmp_path, content)
+    files = _ADAPTER.collect(tmp_path)
+    violations = run(files, Config(), tmp_path)
+    n02 = [v for v in violations if v.check_id == "AL-N02"]
+    assert len(n02) == 1
+
+
+def test_n02_pass_with_source(tmp_path: Path):
+    content = "Improves recall by 25 percent. (Source: results.py)\n"
+    _make_skill(tmp_path, content)
+    files = _ADAPTER.collect(tmp_path)
+    violations = run(files, Config(), tmp_path)
+    assert [v for v in violations if v.check_id == "AL-N02"] == []
+
+
+def test_n02_pass_with_heuristic(tmp_path: Path):
+    content = "Roughly 50 percent of cases need manual review. (heuristic)\n"
+    _make_skill(tmp_path, content)
+    files = _ADAPTER.collect(tmp_path)
+    violations = run(files, Config(), tmp_path)
+    assert [v for v in violations if v.check_id == "AL-N02"] == []
+
+
+def test_n02_skip_code_fence(tmp_path: Path):
+    content = "```\nreturn 75 percent\n```\n"
+    _make_skill(tmp_path, content)
+    files = _ADAPTER.collect(tmp_path)
+    violations = run(files, Config(), tmp_path)
+    assert [v for v in violations if v.check_id == "AL-N02"] == []
+
+
+def test_n02_symbol_percent_fires_n01_not_n02(tmp_path: Path):
+    # A line with "90%" should fire AL-N01, not AL-N02 (no double-fire)
+    content = "The score must be ≥ 90% to pass.\n"
+    _make_skill(tmp_path, content)
+    files = _ADAPTER.collect(tmp_path)
+    violations = run(files, Config(), tmp_path)
+    assert [v for v in violations if v.check_id == "AL-N01"]
+    assert [v for v in violations if v.check_id == "AL-N02"] == []

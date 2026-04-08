@@ -8,11 +8,11 @@ inputs:
     required: false
     default: "."
   format:
-    description: Output format — "text", "json", "sarif", or "badge"
+    description: Output format — "text", "json", "sarif", "badge", or "html"
     required: false
     default: "text"
   adapter:
-    description: Force adapter — "copilot", "cursor", "windsurf", "aider", "continue", or "auto"
+    description: Force adapter — "copilot", "cursor", "windsurf", "aider", "continue", "claudecode", "gemini", or "auto"
     required: false
     default: "auto"
   fail-on-warnings:

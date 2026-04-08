@@ -306,3 +306,111 @@ def test_f01_tree_fuzzy_suggestion(tmp_path: Path):
     tree_violations = [v for v in violations if "Tree diagram" in v.message]
     assert len(tree_violations) == 1
     assert "Did you mean" in tree_violations[0].fix_hint
+
+
+# ---------------------------------------------------------------------------
+# tree_diagram_fenced: scan trees inside ``` code fences (CHECK-07)
+# ---------------------------------------------------------------------------
+
+
+def test_f01_fenced_tree_disabled_by_default(tmp_path: Path):
+    """Trees inside fences are NOT checked when tree_diagram_fenced is False (default)."""
+    content = "```\n├── ghost_module.py\n└── also_missing.ts\n```\n"
+    _make_repo(tmp_path, content)
+    cfg = Config()
+    cfg.tree_diagram_paths = True
+    # tree_diagram_fenced defaults to False
+    files = _ADAPTER.collect(tmp_path)
+    violations = run(files, cfg, tmp_path)
+    tree_violations = [v for v in violations if "Tree diagram" in v.message]
+    assert tree_violations == []
+
+
+def test_f01_fenced_tree_fires_when_enabled(tmp_path: Path):
+    """Trees inside fences fire AL-F01 when tree_diagram_fenced is True."""
+    content = "```\n├── ghost_module.py\n└── also_missing.ts\n```\n"
+    _make_repo(tmp_path, content)
+    cfg = Config()
+    cfg.tree_diagram_paths = True
+    cfg.tree_diagram_fenced = True
+    files = _ADAPTER.collect(tmp_path)
+    violations = run(files, cfg, tmp_path)
+    tree_violations = [v for v in violations if "Tree diagram" in v.message]
+    assert len(tree_violations) == 2
+    assert all(v.check_id == "AL-F01" for v in tree_violations)
+    assert all(v.severity == Severity.WARNING for v in tree_violations)
+
+
+def test_f01_fenced_tree_pass_existing_file(tmp_path: Path):
+    """Fenced tree referencing an existing file → no violation."""
+    (tmp_path / "real_module.py").write_text("# exists\n", encoding="utf-8")
+    content = "```\n├── real_module.py\n```\n"
+    _make_repo(tmp_path, content)
+    cfg = Config()
+    cfg.tree_diagram_paths = True
+    cfg.tree_diagram_fenced = True
+    files = _ADAPTER.collect(tmp_path)
+    violations = run(files, cfg, tmp_path)
+    tree_violations = [v for v in violations if "Tree diagram" in v.message]
+    assert tree_violations == []
+
+
+def test_f01_fenced_tree_file_refs_still_not_checked_inside_fence(tmp_path: Path):
+    """File-path references (app/…) inside fences still don't fire even with fenced enabled."""
+    content = "```yaml\nsource: app/services/missing_service.py\n```\n"
+    _make_repo(tmp_path, content)
+    cfg = Config()
+    cfg.tree_diagram_paths = True
+    cfg.tree_diagram_fenced = True
+    files = _ADAPTER.collect(tmp_path)
+    violations = run(files, cfg, tmp_path)
+    # _FILE_REF_RE matches must not fire inside a fence
+    f01 = [v for v in violations if "Referenced file" in v.message]
+    assert f01 == []
+
+
+def test_f01_fenced_tree_separate_from_prose_tree(tmp_path: Path):
+    """Prose tree fires with tree_diagram_paths; fenced tree requires tree_diagram_fenced too."""
+    (tmp_path / "exists.py").write_text("# exists\n", encoding="utf-8")
+    content = (
+        "Prose tree:\n"
+        "├── ghost_prose.py\n"
+        "\n"
+        "Fenced tree:\n"
+        "```\n"
+        "├── ghost_fenced.py\n"
+        "```\n"
+    )
+    _make_repo(tmp_path, content)
+
+    # Only prose scanning
+    cfg_prose = Config()
+    cfg_prose.tree_diagram_paths = True
+    files = _ADAPTER.collect(tmp_path)
+    prose_violations = [
+        v for v in run(files, cfg_prose, tmp_path) if "Tree diagram" in v.message
+    ]
+    assert len(prose_violations) == 1
+    assert "ghost_prose" in prose_violations[0].message
+
+    # Both prose + fenced
+    cfg_both = Config()
+    cfg_both.tree_diagram_paths = True
+    cfg_both.tree_diagram_fenced = True
+    both_violations = [
+        v for v in run(files, cfg_both, tmp_path) if "Tree diagram" in v.message
+    ]
+    assert len(both_violations) == 2
+
+
+def test_f01_fenced_tree_config_loaded_from_yaml(tmp_path: Path):
+    """tree_diagram_fenced: true in .agentlint.yml is parsed correctly."""
+    from agentlint.config import Config as Cfg
+
+    cfg_file = tmp_path / ".agentlint.yml"
+    cfg_file.write_text(
+        "tree_diagram_paths: true\ntree_diagram_fenced: true\n", encoding="utf-8"
+    )
+    cfg = Cfg.load(tmp_path)
+    assert cfg.tree_diagram_paths is True
+    assert cfg.tree_diagram_fenced is True

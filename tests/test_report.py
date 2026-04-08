@@ -343,3 +343,86 @@ def test_format_badge_colours_differ_by_grade(tmp_path: Path):
         return m.group(1) if m else ""
 
     assert _color(a_svg) != _color(f_svg)
+
+
+# ---------------------------------------------------------------------------
+# format_html
+# ---------------------------------------------------------------------------
+
+
+def test_format_html_is_valid_html(tmp_path: Path):
+    """format_html returns a string that looks like a full HTML page."""
+    from agentlint.report import format_html
+
+    r = _result(tmp_path, files_scanned=2)
+    html = format_html(r, tmp_path)
+    assert "<!DOCTYPE html>" in html
+    assert "<html" in html
+    assert "</html>" in html
+
+
+def test_format_html_clean_shows_no_violations_message(tmp_path: Path):
+    """A clean result produces the 'No violations found' message."""
+    from agentlint.report import format_html
+
+    r = _result(tmp_path, files_scanned=2)
+    html = format_html(r, tmp_path)
+    assert "No violations found" in html
+
+
+def test_format_html_contains_grade(tmp_path: Path):
+    """HTML report embeds the grade."""
+    from agentlint.report import format_html
+
+    r = _result(tmp_path, files_scanned=2)
+    html = format_html(r, tmp_path)
+    assert "Grade" in html
+    assert "A" in html
+
+
+def test_format_html_contains_check_ids(tmp_path: Path):
+    """HTML report includes violation check IDs."""
+    from agentlint.report import format_html
+
+    violations = [_error(tmp_path), _warning(tmp_path)]
+    r = _result(tmp_path, violations=violations, files_scanned=1)
+    html = format_html(r, tmp_path)
+    assert "AL-D01" in html
+    assert "AL-N01" in html
+
+
+def test_format_html_contains_filter_controls(tmp_path: Path):
+    """HTML report has filter buttons and JS filtering function."""
+    from agentlint.report import format_html
+
+    r = _result(tmp_path, files_scanned=1)
+    html = format_html(r, tmp_path)
+    assert "filter-btn" in html
+    assert "applyFilter" in html
+
+
+def test_format_html_escapes_html_in_messages(tmp_path: Path):
+    """Messages containing HTML special characters are escaped."""
+    from agentlint.report import format_html
+
+    v = Violation(
+        check_id="AL-D01",
+        severity=Severity.ERROR,
+        file=tmp_path / "a.md",
+        line=1,
+        message="Path <b>bold</b> & <script>alert(1)</script>",
+        fix_hint="",
+    )
+    r = _result(tmp_path, violations=[v], files_scanned=1)
+    html = format_html(r, tmp_path)
+    assert "<script>alert" not in html
+    assert "&lt;script&gt;" in html
+
+
+def test_format_html_dark_mode_media_query(tmp_path: Path):
+    """HTML report includes a dark-mode media query."""
+    from agentlint.report import format_html
+
+    r = _result(tmp_path, files_scanned=1)
+    html = format_html(r, tmp_path)
+    assert "prefers-color-scheme: dark" in html

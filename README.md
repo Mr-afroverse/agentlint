@@ -39,7 +39,7 @@ Or as a **pre-commit hook** (recommended — runs on every commit, zero maintena
 # .pre-commit-config.yaml
 repos:
   - repo: https://github.com/Mr-afroverse/agentlint
-    rev: v0.3.0
+    rev: v0.5.0
     hooks:
       - id: agentlint
 ```
@@ -52,16 +52,24 @@ repos:
 |----|-------|----------|-----------|
 | AL-D01 | Skill path in dispatch table → exists on disk | Error | ✓ |
 | AL-D02 | Skill file on disk → referenced in dispatch table | Error | ✓ |
+| AL-D03 | No circular references between instruction files | Error | ✓ |
+| AL-D04 | Every required role has at least one SKILL file | Error | — |
 | AL-F01 | Source-file paths in skill files → exist on disk | Warning | ✓ |
+| AL-F02 | Internal anchor links (`#section`) → heading exists in same file | Warning | ✓ |
 | AL-N01 | Threshold numbers → have a source pointer | Warning | ✓ |
+| AL-N02 | Written percentage claims (`N percent`) → have a source pointer | Warning | ✓ |
 | AL-T01 | Trigger descriptions → no significant overlap | Warning | ✓ |
 | AL-P* | Forbidden patterns (built-in defaults + configurable) | Error | ✓ |
+| AL-S01 | Credentials / secrets leaked in instruction files | Warning | ✓ |
+| AL-INV01 | Negative existence claims about paths that actually exist on disk | Warning | ✓ |
+| AL-Q01 | Vague instructions without actionable criteria | Warning | ✓ |
+| AL-TOK01 | Instruction file exceeds configured token budget | Warning | — |
 | AL-E01 | `.env` vs `.env.example` key parity | Error | — |
 | AL-C01 | Cross-file value consistency groups | Error | — |
 | AL-V01 | Documented numeric values → match source constants | Error | — |
 | AL-G01 | Documentation values → match ground-truth JSON/YAML | Error | — |
 
-AL-D01, AL-D02, AL-F01, AL-N01, AL-T01, and AL-P* work out of the box. AL-E01, AL-C01, AL-V01, and AL-G01 are config-driven — add rules in `.agentlint.yml` to activate them.
+AL-D01, AL-D02, AL-D03, AL-F01, AL-F02, AL-N01, AL-N02, AL-T01, AL-P*, AL-S01, AL-INV01, and AL-Q01 work out of the box. AL-D04, AL-TOK01, AL-E01, AL-C01, AL-V01, and AL-G01 are config-driven — add rules in `.agentlint.yml` to activate them.
 
 ---
 
@@ -74,6 +82,8 @@ AL-D01, AL-D02, AL-F01, AL-N01, AL-T01, and AL-P* work out of the box. AL-E01, A
 | **Windsurf** | ✓ | ✓ | `.windsurfrules` + `.windsurf/rules/*.md` |
 | **Aider** | ✓ | ✓ | `.aider.conf.yml` + `.aider/rules/*.md` |
 | **Continue.dev** | ✓ | ✓ | `.continuerules` + `.continue/rules/*.md` |
+| **Claude Code** | ✓ | ✓ | `CLAUDE.md` + `.claude/agents/*.md` + `.claude/commands/*.md` |
+| **Gemini CLI** | ✓ | ✓ | `GEMINI.md` + `.gemini/rules/*.md` |
 
 Multiple formats can be active at once. `agentlint` auto-detects which are present.
 
@@ -97,15 +107,17 @@ Multiple formats can be active at once. `agentlint` auto-detects which are prese
       Fix → Add '(Source: constants.py)' or a regulatory article reference.
 
   docs/ARCHITECTURE.md
-    ✖ [AL-V01]:31  Documented value `25` ≠ source `NotificationConfig.minimum_risk_score` = `30` in `agents/notification_agent.py`
+    ✖ [AL-V01]:31  Documented value `25` ≠ source `NotificationConfig.minimum_risk_score` = `30` in `your-project/agents/config.py`
       Fix → Update the value to `30` or correct the source.
 ```
 
 > **AL-V01 source annotation format:** Add a constant path to your `(Source:)` annotation to enable value validation:
 > ```
-> Notification threshold: 30  (Source: agents/notification_agent.py:NotificationConfig.minimum_risk_score)
+> Notification threshold: 30  (Source: <your_module>/agents/config.py:NotificationConfig.minimum_risk_score)
 > ```
 > agentlint resolves the file, extracts the constant's current value, and errors if they disagree. Plain `(Source: file.py)` annotations (without `:constant`) are handled by AL-N01 as before.
+
+> **AL-V01 limitation:** extraction uses regex, not AST. Computed expressions (`X = BASE * 0.9`), class properties, and runtime-only values will not be extracted. Annotate simple scalar assignments (`THRESHOLD = 30`) for reliable results.
 
 ---
 
@@ -178,10 +190,13 @@ severity_overrides:
 # Fail the run when warnings are present (default: only errors fail)
 fail_on_warnings: true
 
-# Paths to skip (substring match on the file path)
+# Paths to skip (substring match on the file path).
+# Each entry is a plain string. An optional `reason` field can be added
+# for self-documentation — it is recorded but not used in output.
 ignore_paths:
   - "archive/"
-  - "docs/health/"
+  - path: "docs/health/"
+    reason: "health-check docs are generated and always stale"
 
 # ── v0.2 features ────────────────────────────────────────────
 
@@ -191,12 +206,13 @@ extra_paths:
   - "*.md"
 
 # .env vs .env.example key parity (AL-E01)
-# Parses KEY=value and export KEY=value formats. Commented-out keys (# KEY=)
-# are not counted as defined keys in either file.
 config_parity:
   - source: ".env"
     template: ".env.example"
     severity: error
+
+# AL-E01 parses both `KEY=value` and `export KEY=value` (bash-style) formats.
+# Lines starting with `#` are treated as comments and ignored in both files.
 
 # Cross-file value consistency groups (AL-C01)
 consistency_groups:
@@ -233,7 +249,15 @@ ground_truth_files:
     severity: warning
 
 # Opt-in: check filenames inside ASCII tree diagrams for AL-F01
+# Only scans bare prose trees (├──/└── lines) — code fences are skipped by default.
 tree_diagram_paths: true
+
+# Opt-in: also scan tree diagrams inside ``` code fences (requires tree_diagram_paths: true)
+tree_diagram_fenced: true
+
+# AL-TOK01: warn when a SKILL or DISPATCH file exceeds this estimated token count.
+# Token count is approximated as len(content) / 4 (OpenAI heuristic). 0 = disabled.
+token_budget: 2000
 ```
 
 ### Replace built-in forbidden patterns entirely
@@ -274,7 +298,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: Mr-afroverse/agentlint@v0.3.0
+      - uses: Mr-afroverse/agentlint@v0.5.0
 ```
 
 ### Action inputs
@@ -282,14 +306,14 @@ jobs:
 | Input | Default | Description |
 |-------|---------|-------------|
 | `path` | `.` | Directory to scan |
-| `format` | `text` | Output format — `text`, `json`, `sarif`, or `badge` |
-| `adapter` | `auto` | Force adapter — `copilot`, `cursor`, `windsurf`, `aider`, `continue`, or `auto` |
+| `format` | `text` | Output format — `text`, `json`, `sarif`, `badge`, or `html` |
+| `adapter` | `auto` | Force adapter — `copilot`, `cursor`, `windsurf`, `aider`, `continue`, `claudecode`, `gemini`, or `auto` |
 | `fail-on-warnings` | `false` | Exit 1 when warnings are present |
 
 Example — fail the build on warnings:
 
 ```yaml
-- uses: Mr-afroverse/agentlint@v0.3.0
+- uses: Mr-afroverse/agentlint@v0.5.0
   with:
     fail-on-warnings: true
 ```
@@ -307,6 +331,112 @@ Example — emit SARIF for [GitHub Code Scanning](https://docs.github.com/en/cod
     sarif_file: agentlint.sarif
 ```
 
+Example — write an HTML report as a build artifact:
+
+```yaml
+- name: Install agentlint
+  run: pip install instruction-lint
+- name: Run agentlint (HTML)
+  run: agentlint --format html || true   # don't fail; upload the report regardless
+- name: Upload HTML report
+  uses: actions/upload-artifact@v4
+  with:
+    name: agentlint-report
+    path: agentlint-report.html
+```
+
+---
+
+## SARIF → GitHub inline PR annotations
+
+agentlint's `--format sarif` output is SARIF 2.1.0. GitHub Code Scanning converts it to inline annotations on pull requests automatically once the SARIF file is uploaded.
+
+### Option A — GitHub Code Scanning (recommended)
+
+Requires GitHub Advanced Security (free for public repos, licensed for private).
+
+```yaml
+# .github/workflows/agentlint.yml
+name: agentlint
+on: [push, pull_request]
+
+jobs:
+  agentlint:
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write   # required for upload-sarif
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install agentlint
+        run: pip install instruction-lint
+      - name: Run agentlint
+        run: agentlint --format sarif > agentlint.sarif || true
+      - name: Upload SARIF to GitHub Code Scanning
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: agentlint.sarif
+```
+
+Violations appear as inline annotations on the **Files changed** tab of every PR, with the check ID, message, and fix hint visible without leaving the review UI.
+
+### Option B — Lightweight GitHub Actions annotations (no GHAS required)
+
+For private repos without GitHub Advanced Security, pipe the JSON output through a small script to emit [workflow commands](https://docs.github.com/en/actions/using-workflows/workflow-commands-for-github-actions).
+
+```yaml
+- name: Install agentlint
+  run: pip install instruction-lint
+- name: Run agentlint and emit annotations
+  run: |
+    agentlint --format json > agentlint-result.json || true
+    python - <<'EOF'
+    import json, sys
+    data = json.load(open("agentlint-result.json"))
+    level_map = {"error": "error", "warning": "warning", "info": "notice"}
+    for v in data["violations"]:
+        level = level_map.get(v["severity"], "warning")
+        file  = v["file"]
+        line  = v.get("line") or 1
+        msg   = v["message"].replace("%", "%25").replace("\n", "%0A")
+        print(f"::{level} file={file},line={line}::{v['check_id']} — {msg}")
+    if data["errors"]:
+        sys.exit(1)
+    EOF
+```
+
+### Option C — reviewdog
+
+If you already use [reviewdog](https://github.com/reviewdog/reviewdog) in your pipeline:
+
+```yaml
+- name: Install tools
+  run: |
+    pip install instruction-lint
+    curl -sfL https://raw.githubusercontent.com/reviewdog/reviewdog/master/install.sh | sh -s -- -b /usr/local/bin
+- name: Run agentlint via reviewdog
+  env:
+    REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  run: |
+    agentlint --format sarif > agentlint.sarif || true
+    reviewdog -f=sarif -name=agentlint -reporter=github-pr-review < agentlint.sarif
+```
+
+reviewdog posts each violation as a PR review comment on the exact changed line.
+
+### Baseline suppression in CI
+
+For repos with pre-existing violations, capture a baseline once and only fail on new regressions:
+
+```yaml
+# Step 1 (run once, commit .agentlint-baseline.json to the repo)
+# agentlint --update-baseline .agentlint-baseline.json
+
+# Step 2 (in CI — only new violations fail the build)
+- name: Run agentlint with baseline
+  run: agentlint --baseline .agentlint-baseline.json
+```
+
 ---
 
 ## CLI reference
@@ -318,17 +448,23 @@ Usage: agentlint [OPTIONS] [PATH]
 
 Options:
   -V, --version                   Show the version and exit.
-  --format [text|json|sarif|badge]
-                                  Output format (default: text). 'badge' writes
-                                  agentlint-badge.svg to disk.
+  --format [text|json|sarif|badge|html]
+                                  Output format (default: text).
+                                  'badge' writes agentlint-badge.svg to disk.
+                                  'html' writes agentlint-report.html to disk.
   --config PATH                   Path to .agentlint.yml config file.
-  --adapter [copilot|cursor|windsurf|aider|continue|auto]
+  --adapter [copilot|cursor|windsurf|aider|continue|claudecode|gemini|auto]
                                   Force a specific adapter (default: auto-
                                   detect).
   --fail-on-warnings              Exit 1 when warnings are present (overrides
                                   config).
-  --init                          Copy SKILL_HEALTH_CHECK.md template into
-                                  .github/skills/.
+  --init                          Generate .agentlint.yml and copy
+                                  SKILL_HEALTH_CHECK.md into .github/skills/.
+  --baseline PATH                 Suppress violations already recorded in
+                                  PATH. Reports only new regressions.
+  --update-baseline PATH          Snapshot current violations to PATH and
+                                  exit 0. Commit the file to silence known
+                                  issues in CI.
   --watch                         Re-run on file changes. Requires: pip
                                   install 'instruction-lint[watch]'.
   -h, --help                      Show this message and exit.

@@ -1,0 +1,16 @@
+# agentlint self-lint config
+# Extends zero-config checks (AL-D01, AL-D02, AL-F01, AL-N01, AL-T01, AL-P*)
+# to the project's own documentation files.
+
+extra_paths:
+  - README.md
+  - CONTRIBUTING.md
+  - CHANGELOG.md
+  - agentstate.md
+  - stress-test.agent.md
+  - release-check.agent.md
+
+
+ignore_paths:
+  - path: "CHANGELOG.md"
+    reason: "Contains illustrative syntax examples that trigger AL-F02 false positives"

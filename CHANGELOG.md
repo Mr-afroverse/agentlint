@@ -2,6 +2,117 @@
 
 All notable changes to agentlint are documented here.
 
+## [0.5.0] — 2026-04-08
+
+### Added
+- **AL-D03 `circular_refs` check** — detects circular reference cycles between
+  instruction files (DISPATCH and SKILL roles) by building a directed backtick-path
+  graph and running DFS cycle detection. A cycle such as DISPATCH → SKILL-A →
+  DISPATCH is reported as an error on the entry file. Fires at ERROR severity.
+  Zero-config — runs automatically on every scan.
+- **AL-D04 `role_coverage` check** — verifies that every role declared in
+  `required_roles` config has at least one SKILL file whose `name` frontmatter
+  or parent directory name matches. Fires at ERROR severity. Config-driven via
+  `required_roles: [role-a, role-b]` in `.agentlint.yml`.
+- **`required_roles` config field** — list of role names that must have SKILL
+  file coverage. Powers the new AL-D04 check.
+- **`--baseline PATH` flag** — suppress violations already recorded in a baseline
+  JSON file. Suppression count is reported to stderr. Pairs with `--update-baseline`
+  to snapshot the current set of violations and exit 0.
+- **`--update-baseline PATH` flag** — snapshot current violations to a JSON baseline
+  file and exit 0. Replaces any existing baseline at that path.
+- **`--format html` output** — `agentlint --format html` produces a self-contained
+  `agentlint-report.html` page with grade badge, summary stats, per-file violation
+  groups, severity filter buttons, and automatic dark mode via `prefers-color-scheme`.
+- **`agentlint --init` config wizard** — after installing the SKILL_HEALTH_CHECK.md
+  template, probes `src/`, `app/`, `docs/`, and `README.md` to generate a tailored
+  `.agentlint.yml`. Never overwrites an existing config file.
+- 42 new tests. Test count: 262 → 304.
+
+### Fixed
+- **AL-INV01 false positives on conditional-availability lines** — negation matching is now
+  positional: a `_NEG_BEFORE_RE` hit only counts when the negation phrase ends *before*
+  the backtick path starts; a `_NEG_AFTER_RE` hit only counts when it starts *after* the
+  path ends. Eliminates false positives on lines like
+  `"If the tool is not available, use \`scripts/test.sh\`"`. 2 regression tests added.
+- **AL-F02 double-hyphen anchor slugs** — `_to_slug()` now replaces each whitespace
+  character individually (`[\s_]` → `-`) rather than collapsing runs (`[\s_]+` → `-`).
+  Headings like `## Testing & Validation` now correctly produce `#testing--validation`
+  (matching GitHub's anchor algorithm), eliminating false positives on `&`-containing
+  headings. 1 regression test added.
+- 3 regression tests added. Test count: 304 → 307.
+- **AL-Q01 false positives on qualified concise phrases** — `\bbe\s+concise\b`
+  narrowed to `\bbe\s+concise(?!\s*,|\s+but\b)` so phrases like
+  `"be concise but descriptive"` and `"be concise, keyword-rich"` no longer fire
+  when a same-line qualifier follows. Standalone `"Be concise."` still fires.
+  Confirmed by stress test against `anthropics/claude-cookbooks` and
+  `continuedev/continue`. 3 regression tests added. Test count: 307 → 310.
+
+### Documented
+- **SARIF → GitHub inline PR annotations** — README documents three integration
+  patterns: (A) GitHub Code Scanning SARIF upload with `permissions: security-events: write`,
+  (B) lightweight JSON → `::error/warning` workflow-command script (no GHAS required),
+  (C) reviewdog SARIF adapter. Baseline suppression CI recipe also documented.
+- **CLI reference updated** — `--format html`, `--baseline PATH`, `--update-baseline PATH`
+  flags and updated `--init` description added to README.
+
+## [0.4.0] — 2026-04-07
+
+> **Note:** v0.4.0 was an intermediate development version. It was not released to PyPI — all features listed below shipped as part of the v0.5.0 PyPI release.
+
+### Added
+- **Claude Code adapter** — detects and lints `CLAUDE.md` (DISPATCH), `.claude/agents/*.md`
+  (SKILL), and `.claude/commands/*.md` (SKILL). Claude Code is now the sixth supported
+  assistant alongside GitHub Copilot, Cursor, Windsurf, Aider, and Continue.dev.
+- **Gemini CLI adapter** — detects and lints `GEMINI.md` (DISPATCH) and
+  `.gemini/rules/*.md` (SKILL). Gemini CLI is now the seventh supported assistant.
+- **AL-S01 `secret_detection` check** — flags lines in instruction files and extra-path
+  docs that appear to contain real credentials: AWS access keys, GitHub tokens (classic
+  and fine-grained PAT), OpenAI keys (standard and project-scoped), Anthropic keys, JWTs,
+  PEM private key blocks, and high-entropy hex assignments. Fires at WARNING severity;
+  suppresses common placeholder strings (`your-…`, `example`, `<TOKEN>`, etc.).
+  Zero-config — runs automatically on every scan.
+- **AL-INV01 `inverse_claims` check** — flags documentation lines that make a
+  negative existence claim about a path ("there is no `X`", "does not have `X`",
+  "`X` is not implemented") while the backtick-referenced path actually exists on disk.
+  Fires at WARNING severity. Zero-config. Source: EU Compliance Pipeline feedback-v3 §4.
+- **AL-F02 `dead_anchors` check** — flags `[text](#section)` links where the target
+  anchor does not correspond to any heading in the same file. Uses GitHub-style anchor
+  slug generation. Fires at WARNING severity. Zero-config — runs on SKILL, DISPATCH,
+  and DOCS files.
+- **AL-N02 `number_sourcing` extension** — extends AL-N01 to also detect written-out
+  percentage claims (`"40 percent"`, `"30 per cent"`) without a source pointer.
+  Same lookback and source-marker logic as AL-N01. Zero-config.
+- **AL-Q01 `vague_instructions` check** — flags structurally vague phrases that give
+  the AI agent no actionable criterion: "write clean code", "follow best practices",
+  "be helpful", "make sure it works", "use common sense", and 30+ similar patterns.
+  Fires at WARNING severity. Suppressible with inline `# agentlint: disable=AL-Q01`.
+  Zero-config — runs on SKILL and DISPATCH files.
+- **AL-TOK01 `token_budget` check** — warns when an instruction file's estimated
+  token count (approximated as `len(content) / 4`) exceeds the configured budget.
+  Opt-in via `token_budget: N` in `.agentlint.yml`. Runs on SKILL and DISPATCH files.
+- **`agentlint` PyPI alias package** (`agentlint-alias/`) — a stub wheel named `agentlint`
+  that declares `instruction-lint>=0.4.0` as its sole dependency. Allows users to
+  `pip install agentlint` and get the correct package.
+- **UX-06: `ignore_paths` reason field** — each `ignore_paths` entry now optionally accepts
+  a dict with `path:` and `reason:` keys (`{ path: "archive/", reason: "generated" }`).
+  Plain string entries continue to work. The `reason` value is for self-documentation only.
+- **`tree_diagram_fenced: true` config flag (CHECK-07)** — extends `tree_diagram_paths`
+  to also scan ASCII tree diagrams (` ├── ` / ` └── ` lines) inside ` ``` ` code fences.
+  Disabled by default; requires `tree_diagram_paths: true` to have any effect.
+  File-path references (`app/…`, `src/…`) inside fences remain unscanned.
+- 104 new tests (+55 this session: Gemini: 8, AL-N02: 7, AL-F02: 15, AL-Q01: 15,
+  AL-TOK01: 11, inverse claims: 12). Test count: 158 → 262.
+
+### Documented
+- **AL-E01 format:** README now explicitly states that AL-E01 parses both `KEY=value`
+  and `export KEY=value` (bash-style) formats, and that `# comment` lines are ignored.
+- **`tree_diagram_paths` / `tree_diagram_fenced` flags:** README config example now
+  documents both flags with inline notes explaining the fence-scanning behaviour.
+- **AL-V01 regex ceiling:** README now documents that AL-V01 uses regex extraction,
+  not AST. Computed expressions, class properties, and runtime-only values will not
+  be resolved; only simple scalar assignments are reliably extracted.
+
 ## [0.3.0] — 2026-04-04
 
 ### Added
@@ -112,7 +223,7 @@ All notable changes to agentlint are documented here.
   Scanning and other SAST platforms. (`agentlint/report.py`, `agentlint/cli.py`)
 - **AL-F01 fuzzy suggestions** — when a referenced file path is not found on disk, the
   fix hint now checks for similarly-named files using `difflib.get_close_matches` and
-  suggests the closest match (e.g. `Did you mean 'src/utils/validator.ts'?`).
+  suggests the closest match (e.g. `Did you mean 'your-project/utils/validator.ts'?`).
   (`agentlint/checks/file_references.py`)
 - 10 new tests covering all three features above (`tests/test_cli.py`,
   `tests/test_file_references.py`). Test count: 51 → 67 → 77.
