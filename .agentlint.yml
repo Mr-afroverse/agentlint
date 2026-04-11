@@ -6,11 +6,16 @@ extra_paths:
   - README.md
   - CONTRIBUTING.md
   - CHANGELOG.md
-  - agentstate.md
-  - stress-test.agent.md
-  - release-check.agent.md
+  - .github/agents/stress-test.agent.md
+  - .github/agents/release-check.agent.md
+  - .github/agents/coding.agent.md
+  - .github/agents/orchestrator.agent.md
 
 
 ignore_paths:
   - path: "CHANGELOG.md"
+    checks: ["dead-anchors"]
     reason: "Contains illustrative syntax examples that trigger AL-F02 false positives"
+  - path: ".github/agents/"
+    checks: ["file-references", "dead-anchors", "inverse-claims"]
+    reason: "Agent scenario files contain example paths and conditional language, not real file references"

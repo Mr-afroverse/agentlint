@@ -1,7 +1,11 @@
 """
-AL-F01  Concrete source-file paths referenced in skill files must exist on disk.
+AL-F01  Concrete source-file paths referenced in skill and dispatch files must
+        exist on disk.
 
 Matches paths like `app/services/foo.py`, `src/utils/bar.ts`, etc.
+The prefix set is built dynamically from hardcoded defaults, configured
+``source_roots``, and top-level non-hidden project directories — so project-
+specific trees like ``agentlint/`` are automatically included.
 Glob patterns and template strings (containing `{` or `*`) are ignored.
 
 When ``tree_diagram_paths`` is enabled in config, also checks filenames
@@ -19,15 +23,39 @@ from pathlib import Path
 
 from agentlint.config import Config
 from agentlint.models import InstructionFile, Role, Severity, Violation
+from agentlint.checks._utils import _CODE_FENCE_RE
 
-# Matches paths starting with a common source root segment followed by at least
-# one directory separator and a filename with an extension.
+# Default prefix set — used as the baseline when building the dynamic regex.
+_DEFAULT_PREFIXES: frozenset[str] = frozenset(
+    {"app", "src", "lib", "pkg", "backend", "frontend"}
+)
+
+# Module-level fallback regex (used when dynamic building is not possible).
 _FILE_REF_RE = re.compile(
     r"\b((?:app|src|lib|pkg|backend|frontend)/[a-zA-Z0-9_/.-]+\.[a-zA-Z]{1,6})\b"
 )
 
-# Exactly 3 backticks at start of line — opening/closing a code fence.
-_CODE_FENCE_RE = re.compile(r"^```(?!`)")
+
+def _build_file_ref_re(config: Config, root: Path) -> re.Pattern[str]:
+    """Return a file-ref regex whose prefix set covers:
+    - the hardcoded defaults (app, src, lib, ...)
+    - any configured source_roots that are simple directory names
+    - any non-hidden top-level directory found in *root*
+    """
+    prefixes: set[str] = set(_DEFAULT_PREFIXES)
+    for sr in config.source_roots:
+        sr = sr.strip()
+        if sr and sr != "." and "/" not in sr and "\\" not in sr:
+            prefixes.add(sr)
+    try:
+        for child in root.iterdir():
+            if child.is_dir() and not child.name.startswith((".", "_")):
+                prefixes.add(child.name)
+    except PermissionError:
+        pass
+    prefix_pat = "|".join(re.escape(p) for p in sorted(prefixes))
+    return re.compile(rf"\b((?:{prefix_pat})/[a-zA-Z0-9_/.-]+\.[a-zA-Z]{{1,6}})\b")
+
 
 # Tree diagram line: ├── filename.ext or └── filename.ext
 _TREE_FILE_RE = re.compile(r"[│├└─\s]*[├└]\u2500\u2500\s+([\w.-]+\.[\w]{1,6})\b")
@@ -38,6 +66,10 @@ def run(
     config: Config,
     root: Path,
 ) -> list[Violation]:
+    # Build a project-aware regex that covers agentlint/, tests/, etc. in addition
+    # to the default prefixes.
+    file_ref_re = _build_file_ref_re(config, root)
+
     # Build candidate roots: configured + any top-level subdirectory of root.
     candidate_roots: list[Path] = [root / sr for sr in config.source_roots]
     try:
@@ -58,7 +90,7 @@ def run(
                 part.startswith(".") for part in f.relative_to(root).parts
             ):
                 rel = f.relative_to(root).as_posix()
-                if _FILE_REF_RE.match(rel):
+                if file_ref_re.match(rel):
                     known_files.append(rel)
     except PermissionError:
         pass
@@ -77,7 +109,7 @@ def run(
 
     violations: list[Violation] = []
 
-    for sf in [f for f in files if f.role in (Role.SKILL, Role.DOCS)]:
+    for sf in [f for f in files if f.role in (Role.SKILL, Role.DISPATCH, Role.DOCS)]:
         seen: set[str] = set()
         in_code = False
         for lineno, line in enumerate(sf.lines, start=1):
@@ -87,9 +119,13 @@ def run(
 
             # File-ref scanning is always skipped inside fences.
             if not in_code:
-                for m in _FILE_REF_RE.finditer(line):
+                for m in file_ref_re.finditer(line):
                     ref = m.group(1)
                     if ref in seen or "{" in ref or "*" in ref:
+                        continue
+                    # Skip path segments embedded inside URLs (e.g. GitHub badge
+                    # URLs where the package name appears as a URL component).
+                    if m.start() > 0 and line[m.start() - 1] == "/":
                         continue
                     seen.add(ref)
                     if not _exists(ref):

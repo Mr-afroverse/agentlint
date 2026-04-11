@@ -58,6 +58,13 @@ def run(
         source_path = root / source_rel
         template_path = root / template_rel
 
+        # Guard against path traversal via crafted config values.
+        root_resolved = root.resolve()
+        if not source_path.resolve().is_relative_to(root_resolved):
+            continue
+        if not template_path.resolve().is_relative_to(root_resolved):
+            continue
+
         if not source_path.is_file() or not template_path.is_file():
             continue
 

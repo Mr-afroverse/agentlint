@@ -101,6 +101,7 @@ def run(
 
             for check_id, description, pattern in _PATTERNS:
                 if pattern.search(line):
+                    new_line = pattern.sub("<REDACTED>", line)
                     violations.append(
                         Violation(
                             check_id=check_id,
@@ -112,6 +113,8 @@ def run(
                                 "Remove the credential and rotate it immediately. "
                                 "Use an environment variable reference instead."
                             ),
+                            auto_fixable=True,
+                            fix_data={"old_line": line, "new_line": new_line},
                         )
                     )
                     break  # one violation per line — avoid duplicate alerts

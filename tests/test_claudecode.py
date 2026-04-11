@@ -28,6 +28,11 @@ def test_detect_true_with_commands_dir(tmp_path: Path):
     assert _ADAPTER.detect(tmp_path) is True
 
 
+def test_detect_true_with_rules_dir(tmp_path: Path):
+    (tmp_path / ".claude" / "rules").mkdir(parents=True)
+    assert _ADAPTER.detect(tmp_path) is True
+
+
 def test_detect_false_when_nothing_present(tmp_path: Path):
     assert _ADAPTER.detect(tmp_path) is False
 
@@ -97,6 +102,21 @@ def test_collect_skill_from_commands_dir(tmp_path: Path):
 
 
 # ---------------------------------------------------------------------------
+# collect() — .claude/rules/*.md (SKILL)
+# ---------------------------------------------------------------------------
+
+
+def test_collect_skill_from_rules_dir(tmp_path: Path):
+    rules_dir = tmp_path / ".claude" / "rules"
+    rules_dir.mkdir(parents=True)
+    (rules_dir / "quality.md").write_text("# Quality rules", encoding="utf-8")
+    files = _ADAPTER.collect(tmp_path)
+    assert len(files) == 1
+    assert files[0].role == Role.SKILL
+    assert files[0].path.name == "quality.md"
+
+
+# ---------------------------------------------------------------------------
 # collect() — all sources combined
 # ---------------------------------------------------------------------------
 
@@ -109,14 +129,57 @@ def test_collect_all_sources_combined(tmp_path: Path):
     commands_dir = tmp_path / ".claude" / "commands"
     commands_dir.mkdir(parents=True)
     (commands_dir / "summarize.md").write_text("# /summarize", encoding="utf-8")
+    rules_dir = tmp_path / ".claude" / "rules"
+    rules_dir.mkdir(parents=True)
+    (rules_dir / "style.md").write_text("# Style", encoding="utf-8")
 
     files = _ADAPTER.collect(tmp_path)
-    assert len(files) == 3
+    assert len(files) == 4
     roles = [f.role for f in files]
     assert Role.DISPATCH in roles
-    assert roles.count(Role.SKILL) == 2
+    assert roles.count(Role.SKILL) == 3
 
 
 def test_collect_empty_when_nothing_present(tmp_path: Path):
     files = _ADAPTER.collect(tmp_path)
     assert files == []
+
+
+# ---------------------------------------------------------------------------
+# collect() — nested CLAUDE.md in subdirectories (SKILL)
+# ---------------------------------------------------------------------------
+
+
+def test_collect_nested_claude_md_as_skill(tmp_path: Path):
+    (tmp_path / "CLAUDE.md").write_text("# Global", encoding="utf-8")
+    subdir = tmp_path / "backend"
+    subdir.mkdir()
+    (subdir / "CLAUDE.md").write_text("# Backend instructions", encoding="utf-8")
+    files = _ADAPTER.collect(tmp_path)
+    roles = [f.role for f in files]
+    assert Role.DISPATCH in roles
+    assert Role.SKILL in roles
+    skill = next(f for f in files if f.role == Role.SKILL)
+    assert skill.path == subdir / "CLAUDE.md"
+
+
+def test_collect_multiple_nested_claude_mds(tmp_path: Path):
+    (tmp_path / "CLAUDE.md").write_text("# Global", encoding="utf-8")
+    for name in ("frontend", "backend", "services"):
+        d = tmp_path / name
+        d.mkdir()
+        (d / "CLAUDE.md").write_text(f"# {name}", encoding="utf-8")
+    files = _ADAPTER.collect(tmp_path)
+    assert len([f for f in files if f.role == Role.SKILL]) == 3
+    assert len([f for f in files if f.role == Role.DISPATCH]) == 1
+
+
+def test_collect_nested_claude_md_without_root(tmp_path: Path):
+    # No root CLAUDE.md — only a nested one detected via detect() through other means
+    subdir = tmp_path / "src"
+    subdir.mkdir()
+    (subdir / "CLAUDE.md").write_text("# Src instructions", encoding="utf-8")
+    files = _ADAPTER.collect(tmp_path)
+    # The nested file is still collected as SKILL (dispatch_path doesn't exist)
+    assert len(files) == 1
+    assert files[0].role == Role.SKILL

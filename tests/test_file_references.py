@@ -7,7 +7,7 @@ Covers:
   - Pass: glob patterns (*) skipped
   - Pass: paths inside code fences skipped  (BUG-02 fix)
   - Pass: paths after a closed fence are still checked
-  - Pass: dispatch file not scanned (SKILL files only)
+  - Fail: dispatch file missing reference fires (SKILL and DISPATCH both scanned)
   - Fail: missing reference fires at WARNING severity
   - Fail: correct line number reported
   - Fail: duplicate path in same file produces one violation
@@ -117,7 +117,7 @@ def test_f01_pass_four_backtick_skill_fence_ignored(tmp_path: Path):
 
 
 def test_f01_pass_dispatch_file_not_scanned(tmp_path: Path):
-    """AL-F01 only scans SKILL files — missing references in the dispatch file are ignored."""
+    """AL-F01 now scans DISPATCH files — a missing reference in the dispatch file fires."""
     skills = tmp_path / ".github" / "skills" / "my-skill"
     skills.mkdir(parents=True)
     # Put a missing path inside the dispatch file itself
@@ -132,8 +132,8 @@ def test_f01_pass_dispatch_file_not_scanned(tmp_path: Path):
 
     files = _ADAPTER.collect(tmp_path)
     violations = run(files, Config(), tmp_path)
-    assert [v for v in violations if v.check_id == "AL-F01"] == [], (
-        "AL-F01 must not scan the dispatch file"
+    assert any(v.check_id == "AL-F01" for v in violations), (
+        "AL-F01 must scan the dispatch file and flag missing references"
     )
 
 
@@ -414,3 +414,33 @@ def test_f01_fenced_tree_config_loaded_from_yaml(tmp_path: Path):
     cfg = Cfg.load(tmp_path)
     assert cfg.tree_diagram_paths is True
     assert cfg.tree_diagram_fenced is True
+
+
+# ---------------------------------------------------------------------------
+# Regression: _TREE_FILE_RE duplicate at module level (bug fixed 2026-04-11)
+# Before the fix, file_references.py defined _TREE_FILE_RE twice — the first
+# definition (before _build_file_ref_re) was dead code, compiled needlessly
+# on every import and silently overwritten. The fix removed the first def.
+# This test verifies tree-diagram scanning still works correctly, confirming
+# the surviving definition is the right one.
+# ---------------------------------------------------------------------------
+
+
+def test_f01_tree_file_re_only_defined_once():
+    """_TREE_FILE_RE must appear exactly once at module level (no dead duplicate)."""
+    import ast
+    import inspect
+    import agentlint.checks.file_references as fr_mod
+
+    source = inspect.getsource(fr_mod)
+    tree = ast.parse(source)
+    assignments = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Assign)
+        for target in node.targets
+        if isinstance(target, ast.Name) and target.id == "_TREE_FILE_RE"
+    ]
+    assert len(assignments) == 1, (
+        f"_TREE_FILE_RE is defined {len(assignments)} times — expected exactly 1"
+    )

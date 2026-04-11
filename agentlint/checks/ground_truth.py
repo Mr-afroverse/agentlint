@@ -110,8 +110,20 @@ def run(
         reason = rule.get("reason", "")
         mode = rule.get("mode", "value_match")
 
-        # --- read source file ---
+        # Guard against path traversal via crafted config values.
         source_path = root / data_file
+        if not source_path.resolve().is_relative_to(root.resolve()):
+            violations.append(
+                Violation(
+                    check_id="AL-G01",
+                    severity=Severity.WARNING,
+                    file=root / data_file,
+                    line=None,
+                    message=f"[{rule_id}] Ground truth path escapes project root: `{data_file}`",
+                    fix_hint="Use a path relative to the project root in .agentlint.yml.",
+                )
+            )
+            continue
         if not source_path.is_file():
             violations.append(
                 Violation(
@@ -183,7 +195,14 @@ def _check_value_match(
         return
     try:
         pat = re.compile(doc_pattern)
-    except re.error:
+    except re.error as exc:
+        import sys
+
+        print(
+            f"[agentlint] Warning: invalid doc_pattern regex in ground_truth_files "
+            f"(id={rule_id}): {exc}",
+            file=sys.stderr,
+        )
         return
 
     for fpath in target_files:
@@ -233,7 +252,14 @@ def _check_stale_refs(
 
     try:
         pat = re.compile(ref_pattern)
-    except re.error:
+    except re.error as exc:
+        import sys
+
+        print(
+            f"[agentlint] Warning: invalid ref_pattern regex in ground_truth_files "
+            f"(id={rule_id}): {exc}",
+            file=sys.stderr,
+        )
         return
 
     for fpath in target_files:

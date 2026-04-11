@@ -24,7 +24,7 @@ class InstructionFile:
     path: Path
     content: str
     lines: list[str]
-    adapter: str  # "copilot" | "cursor" | "generic"
+    adapter: str  # "copilot" | "cursor" | "windsurf" | "aider" | "continudev" | "claudecode" | "gemini" | "docs"
     role: Role
     metadata: dict = field(
         default_factory=dict

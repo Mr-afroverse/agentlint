@@ -46,11 +46,38 @@ class Config:
     # ---------------------------------------------------------- check toggles
     checks: dict[str, bool] = field(
         default_factory=lambda: {
-            "dispatch-coverage": True,
-            "file-references": True,
-            "number-sourcing": True,
-            "trigger-overlap": True,
-            "forbidden-patterns": True,
+            # ── Dispatch / structure ──────────────────────────────────────
+            "dispatch-coverage": True,  # AL-D01/AL-D02/AL-D04/AL-D05
+            "circular-refs": True,  # AL-D03
+            "role-coverage": True,  # AL-D04
+            # ── File & anchor references ──────────────────────────────────
+            "file-references": True,  # AL-F01
+            "dead-anchors": True,  # AL-F02
+            # ── Number sourcing ───────────────────────────────────────────
+            "number-sourcing": True,  # AL-N01/AL-N02
+            "value-extraction": True,  # AL-V01
+            # ── Trigger quality ───────────────────────────────────────────
+            "trigger-overlap": True,  # AL-T01
+            # ── Content patterns ──────────────────────────────────────────
+            "forbidden-patterns": True,  # AL-P*
+            "deprecated-patterns": True,  # AL-DEP*
+            # ── Security ─────────────────────────────────────────────────
+            "secret-detection": True,  # AL-S01
+            # ── Semantic quality ──────────────────────────────────────────
+            "inverse-claims": True,  # AL-INV01
+            "vague-instructions": True,  # AL-Q01
+            "semantic-conflict": True,  # AL-CONF01
+            "duplicate-content": True,  # AL-DUP01
+            # ── File metadata & structure ─────────────────────────────────
+            "encoding-check": True,  # AL-ENC01
+            "frontmatter-schema": True,  # AL-FM01
+            "min-content": True,  # AL-LEN01
+            "token-budget": True,  # AL-TOK01
+            "freshness": True,  # AL-FRESH01
+            # ── Config-driven standalone ──────────────────────────────────
+            "config-parity": True,  # AL-E01
+            "consistency-groups": True,  # AL-C01
+            "ground-truth": True,  # AL-G01
         }
     )
 
@@ -82,6 +109,15 @@ class Config:
 
     # ------------------------------------------------------------ ignores
     ignore_paths: list[str] = field(default_factory=lambda: ["archive/"])
+    # Per-file check suppression: maps a path pattern (same substring match as
+    # ignore_paths) to a list of check keys to suppress for that file.
+    # Files present here are still collected and scanned by all OTHER checks.
+    # Populated automatically when an ignore_paths dict entry has a "checks" key:
+    #   ignore_paths:
+    #     - path: "CHANGELOG.md"
+    #       checks: ["dead-anchors"]
+    #       reason: "Illustrative examples trigger AL-F02 false positives"
+    ignore_checks: dict[str, list[str]] = field(default_factory=dict)
 
     # ---------------------------------------- v0.2 — documentation drift scope
     # Glob patterns for extra files to scan with AL-P* and AL-F01.
@@ -111,6 +147,29 @@ class Config:
     # Role is matched against skill `name` frontmatter or parent directory name.
     required_roles: list[str] = field(default_factory=list)
 
+    # AL-LEN01: warn when estimated token count of an instruction file is below
+    # this threshold. Files this small are likely accidental stubs.
+    # Uses the same character-count / 4 heuristic as AL-TOK01.
+    min_content_tokens: int = 10
+
+    # AL-FM01: required frontmatter keys for SKILL files.  Empty list = disabled.
+    # Example: required_frontmatter: [name, description]
+    required_frontmatter: list[str] = field(default_factory=list)
+
+    # AL-DUP01: Jaccard similarity threshold for near-duplicate detection.
+    # Range 0.0–1.0. Files with similarity >= threshold are flagged.
+    # Default 0.85. Set to 0 to disable.
+    duplicate_threshold: float = 0.85
+
+    # AL-FRESH01: warn on dates older than this many days in instruction files.
+    # 0 = disabled (default).
+    stale_days: int = 0
+
+    # AL-DEP*: user-supplied list of deprecated AI provider API patterns.
+    # Each entry: {pattern, reason, replacement (optional), severity (optional), id (optional)}.
+    # Empty list = disabled (default).
+    deprecated_patterns: list[dict] = field(default_factory=list)
+
     # ----------------------------------------------------------------- load
     @classmethod
     def load(cls, root: Path) -> "Config":
@@ -132,34 +191,59 @@ class Config:
 
         cfg = cls()
 
-        # Apply scalar / list overrides
+        # Apply string / list / bool overrides (no numeric coercion needed).
         scalar_keys = {
-            "number_source_lookback",
-            "trigger_overlap_threshold",
             "output_format",
             "fail_on_warnings",
             "forbidden_patterns_mode",
             "source_roots",
             "extra_paths",
-            "token_budget",
         }
         for key in scalar_keys:
             if key in data:
                 setattr(cfg, key, data[key])
 
+        # Integer fields — cast to int to guard against quoted YAML values
+        # (e.g. `token_budget: "2000"` would store a str and crash downstream).
+        for _int_key in ("number_source_lookback", "token_budget", "stale_days"):
+            if _int_key in data and data[_int_key] is not None:
+                try:
+                    setattr(cfg, _int_key, int(data[_int_key]))
+                except (TypeError, ValueError):
+                    pass  # keep the dataclass default
+
+        # Float fields — same guard for threshold values.
+        for _float_key in ("trigger_overlap_threshold", "duplicate_threshold"):
+            if _float_key in data and data[_float_key] is not None:
+                try:
+                    setattr(cfg, _float_key, float(data[_float_key]))
+                except (TypeError, ValueError):
+                    pass  # keep the dataclass default
+
         # ignore_paths: each entry is either a plain string or a dict with
-        # a required "path" key and an optional "reason" key (ignored at runtime).
+        # a required "path" key and optional "reason" and "checks" keys.
+        # When "checks" is present the file is not blanket-ignored — it is
+        # still collected and scanned, but only the listed check keys are
+        # suppressed for that file.
         if "ignore_paths" in data:
             raw_paths = data["ignore_paths"]
             if isinstance(raw_paths, list):
+                parsed_checks: dict[str, list[str]] = {}
                 cfg.ignore_paths = [
                     (entry["path"] if isinstance(entry, dict) else str(entry))
                     for entry in raw_paths
                     if isinstance(entry, (str, dict))
                 ]
+                for entry in raw_paths:
+                    if isinstance(entry, dict):
+                        p = entry.get("path", "")
+                        raw_c = entry.get("checks")
+                        if p and isinstance(raw_c, list):
+                            parsed_checks[p] = [str(c) for c in raw_c]
+                cfg.ignore_checks = parsed_checks
 
-        # Merge dicts
-        if "checks" in data:
+        # Merge dicts — guard against non-dict YAML values (e.g. checks: true)
+        if "checks" in data and isinstance(data["checks"], dict):
             cfg.checks.update(data["checks"])
 
         # Severity overrides
@@ -172,17 +256,24 @@ class Config:
                     if isinstance(v, str) and v in ("error", "warning")
                 }
 
-        # Extend source markers
-        if "source_markers" in data:
+        # Extend source markers — guard against scalar YAML values (e.g. source_markers: "heuristic")
+        if "source_markers" in data and isinstance(data["source_markers"], list):
             cfg.source_markers = list(DEFAULT_SOURCE_MARKERS) + data["source_markers"]
 
         # Forbidden patterns — extend or replace
-        if "forbidden_patterns" in data:
+        # Guard: skip malformed entries (non-dict items raise AttributeError on .get())
+        if "forbidden_patterns" in data and isinstance(
+            data["forbidden_patterns"], list
+        ):
             if data.get("forbidden_patterns_mode") == "replace":
-                cfg.forbidden_patterns = data["forbidden_patterns"]
+                cfg.forbidden_patterns = [
+                    p for p in data["forbidden_patterns"] if isinstance(p, dict)
+                ]
             else:
                 existing_ids = {p["id"] for p in DEFAULT_FORBIDDEN}
                 for p in data["forbidden_patterns"]:
+                    if not isinstance(p, dict):
+                        continue  # skip bare strings or other non-dict entries
                     if p.get("id") not in existing_ids:
                         cfg.forbidden_patterns.append(p)
 
@@ -213,5 +304,24 @@ class Config:
         # Required role names (AL-D04)
         if "required_roles" in data and isinstance(data["required_roles"], list):
             cfg.required_roles = [str(r) for r in data["required_roles"]]
+
+        # Minimum content tokens (AL-LEN01)
+        if "min_content_tokens" in data and data["min_content_tokens"] is not None:
+            try:
+                cfg.min_content_tokens = int(data["min_content_tokens"])
+            except (TypeError, ValueError):
+                pass  # keep the dataclass default
+
+        # Required frontmatter keys (AL-FM01)
+        if "required_frontmatter" in data and isinstance(
+            data["required_frontmatter"], list
+        ):
+            cfg.required_frontmatter = [str(k) for k in data["required_frontmatter"]]
+
+        # Deprecated patterns (AL-DEP*)
+        if "deprecated_patterns" in data and isinstance(
+            data["deprecated_patterns"], list
+        ):
+            cfg.deprecated_patterns = data["deprecated_patterns"]
 
         return cfg

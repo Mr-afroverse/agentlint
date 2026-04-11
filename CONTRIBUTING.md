@@ -10,7 +10,7 @@ Thank you for your interest. This guide covers how to add new adapters and check
 git clone https://github.com/Mr-afroverse/agentlint
 cd agentlint
 pip install -e ".[dev]"
-pytest   # all 310 tests should pass
+pytest -k "not watch_exits"   # skips the watchdog-dependent test; all other tests should pass
 ```
 
 ---
@@ -105,11 +105,22 @@ def run(files: list[InstructionFile], config: Config, root: Path) -> list[Violat
 
 | Range | Category |
 |---|---|
-| AL-D* | Dispatch coverage |
-| AL-F* | File references |
-| AL-N* | Number sourcing |
+| AL-D* | Dispatch coverage (AL-D01–AL-D05) |
+| AL-F* | File references (AL-F01–AL-F02) |
+| AL-N* | Number sourcing (AL-N01–AL-N02) |
 | AL-T* | Trigger overlap |
 | AL-P* | Forbidden patterns |
+| AL-S* | Secret detection |
+| AL-Q* | Vague instructions |
+| AL-INV* | Inverse claims |
+| AL-TOK* | Token budget |
+| AL-LEN* | Minimum content |
+| AL-FM* | Frontmatter schema |
+| AL-ENC* | Encoding |
+| AL-E* | Config parity |
+| AL-C* | Consistency |
+| AL-V* | Value extraction |
+| AL-G* | Ground truth |
 | AL-X* | Reserved for community checks |
 
 Pick the next available ID in your category and document it in the README checks table.

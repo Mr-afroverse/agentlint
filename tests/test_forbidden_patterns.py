@@ -99,3 +99,51 @@ def test_invalid_severity_falls_back_to_error(tmp_path: Path):
     violations = run(files, cfg, tmp_path)
     assert len(violations) == 1
     assert violations[0].severity == Severity.ERROR
+
+
+# ---------------------------------------------------------------------------
+# auto_fixable / fix_data
+# ---------------------------------------------------------------------------
+
+
+def test_replacement_key_makes_auto_fixable(tmp_path: Path):
+    """When 'replacement' is present the violation is marked auto_fixable."""
+    cfg = Config()
+    cfg.forbidden_patterns = [
+        {
+            "id": "MY002",
+            "pattern": r"\bgpt-4-0613\b",
+            "reason": "Deprecated model.",
+            "replacement": "gpt-4o",
+            "severity": "warning",
+        }
+    ]
+    _make_skill(tmp_path, "Use gpt-4-0613 now.\n")
+    files = _ADAPTER.collect(tmp_path)
+    violations = run(files, cfg, tmp_path)
+    my = [v for v in violations if v.check_id == "MY002"]
+    assert len(my) == 1
+    assert my[0].auto_fixable is True
+    assert my[0].fix_data["old_line"] == "Use gpt-4-0613 now."
+    assert my[0].fix_data["new_line"] == "Use gpt-4o now."
+
+
+def test_no_replacement_key_not_auto_fixable(tmp_path: Path):
+    """Without 'replacement', auto_fixable is False and fix_data is empty."""
+    cfg = Config()
+    cfg.forbidden_patterns = [
+        {
+            "id": "MY003",
+            "pattern": r"\bdo not use this\b",
+            "reason": "Forbidden phrase.",
+            "fix": "Remove it.",
+            "severity": "warning",
+        }
+    ]
+    _make_skill(tmp_path, "Please do not use this pattern.\n")
+    files = _ADAPTER.collect(tmp_path)
+    violations = run(files, cfg, tmp_path)
+    my = [v for v in violations if v.check_id == "MY003"]
+    assert len(my) == 1
+    assert my[0].auto_fixable is False
+    assert my[0].fix_data == {}

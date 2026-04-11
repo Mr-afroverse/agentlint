@@ -23,15 +23,13 @@ from pathlib import Path
 
 from agentlint.config import Config
 from agentlint.models import InstructionFile, Severity, Violation
+from agentlint.checks._utils import _CODE_FENCE_RE
 
 # Matches `[text](#anchor)` but NOT `[text](file.md#anchor)` or `[text](http://…)`
-_LOCAL_ANCHOR_RE = re.compile(r"\[(?:[^\]]*)\]\(#([^)]+)\)")
+_LOCAL_ANCHOR_RE = re.compile(r"\[(?:[^\]]*)]\(#([^)]+)\)")
 
 # Matches ATX headings: `# Heading`, `## Heading`, etc. (1–6 hashes)
 _HEADING_RE = re.compile(r"^#{1,6}\s+(.+)")
-
-# Code fence boundary
-_CODE_FENCE_RE = re.compile(r"^```(?!`)")
 
 
 def _to_slug(heading_text: str) -> str:

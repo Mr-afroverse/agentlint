@@ -159,6 +159,33 @@ def test_placeholder_suppresses_angle_bracket_token(tmp_path: Path):
     assert violations == []
 
 
+# ---------------------------------------------------------------------------
+# auto_fixable / fix_data
+# ---------------------------------------------------------------------------
+
+
+def test_secret_violation_is_always_auto_fixable(tmp_path: Path):
+    key = "sk-" + "b" * 48
+    files = _make_file(tmp_path, f"OPENAI_KEY={key}\n")
+    violations = run(files, Config(), tmp_path)
+    s01 = [v for v in violations if v.check_id == "AL-S01-OPENAI"]
+    assert len(s01) == 1
+    assert s01[0].auto_fixable is True
+
+
+def test_secret_fix_data_redacts_matched_text(tmp_path: Path):
+    key = "sk-" + "c" * 48
+    line = f"api = {key}"
+    files = _make_file(tmp_path, line + "\n")
+    violations = run(files, Config(), tmp_path)
+    s01 = [v for v in violations if v.check_id == "AL-S01-OPENAI"]
+    assert len(s01) == 1
+    assert s01[0].fix_data["old_line"] == line
+    # The matched key must be replaced with <REDACTED>
+    assert "<REDACTED>" in s01[0].fix_data["new_line"]
+    assert key not in s01[0].fix_data["new_line"]
+
+
 def test_placeholder_suppresses_dummy_key(tmp_path: Path):
     files = _make_file(tmp_path, f'secret_key = "dummy{"x" * 32}"\n')
     violations = run(files, Config(), tmp_path)

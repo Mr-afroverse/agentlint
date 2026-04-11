@@ -1,0 +1,11 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "type": "command",
+        "windows": "powershell -ExecutionPolicy Bypass -File \".github\\hooks\\pre-commit-advisory.ps1\"",
+        "timeout": 30
+      }
+    ]
+  }
+}

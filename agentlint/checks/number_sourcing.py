@@ -22,6 +22,7 @@ from pathlib import Path
 
 from agentlint.config import Config
 from agentlint.models import InstructionFile, Role, Severity, Violation
+from agentlint.checks._utils import _CODE_FENCE_RE
 
 # Matches percentage values and comparison operators with percentages.
 # Intentionally does NOT match bare `≥ N` or `≤ N` without `%` — those are
@@ -34,9 +35,6 @@ _THRESHOLD_RE = re.compile(
 
 # Matches written-out percentage claims: "40 percent", "40 per cent".
 _PERCENT_WORD_RE = re.compile(r"\b\d+(?:\.\d+)?\s+per(?:\s+cent|cent)\b", re.IGNORECASE)
-
-# Exactly 3 backticks at start of line — opening/closing a code fence.
-_CODE_FENCE_RE = re.compile(r"^```(?!`)")
 
 
 def run(
@@ -52,6 +50,19 @@ def run(
         lines = sf.lines
         in_code = False
 
+        # Define _sourced once per file — captures lines/source_re/lookback from
+        # enclosing scope; lineno is passed explicitly to avoid per-iteration redefinition.
+        def _sourced(ln: str, lineno: int) -> bool:
+            if source_re.search(ln):
+                return True
+            stripped = ln.lstrip()
+            if stripped.startswith("|") or stripped.startswith(">"):
+                lb_start = max(0, lineno - 1 - lookback)
+                lb_text = "\n".join(lines[lb_start : lineno - 1])
+                if source_re.search(lb_text):
+                    return True
+            return False
+
         for lineno, line in enumerate(lines, start=1):
             # Track code fence state
             if _CODE_FENCE_RE.match(line.strip()):
@@ -59,20 +70,8 @@ def run(
             if in_code:
                 continue
 
-            # Helper: does this line (or recent context) have a source pointer?
-            def _sourced(ln: str) -> bool:
-                if source_re.search(ln):
-                    return True
-                stripped = ln.lstrip()
-                if stripped.startswith("|") or stripped.startswith(">"):
-                    lb_start = max(0, lineno - 1 - lookback)
-                    lb_text = "\n".join(lines[lb_start : lineno - 1])
-                    if source_re.search(lb_text):
-                        return True
-                return False
-
             # AL-N01: symbol/operator percentage thresholds
-            if _THRESHOLD_RE.search(line) and not _sourced(line):
+            if _THRESHOLD_RE.search(line) and not _sourced(line, lineno):
                 violations.append(
                     Violation(
                         check_id="AL-N01",
@@ -89,7 +88,7 @@ def run(
                 continue  # avoid double-firing AL-N02 on the same line
 
             # AL-N02: written-out percentage claims ("40 percent", "40 per cent")
-            if _PERCENT_WORD_RE.search(line) and not _sourced(line):
+            if _PERCENT_WORD_RE.search(line) and not _sourced(line, lineno):
                 violations.append(
                     Violation(
                         check_id="AL-N02",

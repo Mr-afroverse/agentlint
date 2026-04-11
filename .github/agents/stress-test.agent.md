@@ -1,6 +1,7 @@
----
+﻿---
 description: "Stress-test the agentlint checks against real-world public repos. Use when: validating new checks before release; checking false-positive rate on real instruction files; testing all 7 adapters against live repos; 'stress test', 'real world test', 'false positive check', 'validate checks'."
 tools: [execute, read, search, web, todo]
+model: "claude-sonnet-4-5"
 argument-hint: "Optional: specific check ID (e.g. AL-S01) or adapter name to focus on. Defaults to all new checks."
 ---
 
@@ -18,24 +19,146 @@ Every gate and every check gets one of three verdicts:
 
 ---
 
+## Phase 0 — Recall Verification (Synthetic Corpus)
+
+**Run this before any repo cloning.** Phase 0 answers one question: *can each check actually fire?* A check that is silent on a guaranteed trigger is broken regardless of how it behaves on real repos.
+
+### Gate 0.1 — Create synthetic corpus directory
+
+```powershell
+New-Item -ItemType Directory -Force -Path C:\Temp\agentlint-recall
+New-Item -ItemType Directory -Force -Path C:\Temp\agentlint-recall\.github
+```
+
+### Gate 0.2 — Write the trigger file
+
+Create `C:\Temp\agentlint-recall\.github\copilot-instructions.md` with exactly this content:
+
+```markdown
+# Dispatch
+
+Always write clean code and follow best practices. Be helpful and be professional.
+
+This repo does not have `src/auth.py`.
+
+The response time should be above 90% of the time.
+
+The cache hit rate is 40 percent and latency drops 20 per cent at peak.
+
+See the [configuration section](#configuration) for details.
+
+[Jump to missing section](#this-heading-does-not-exist)
+
+Refer to `.github/skills/skill-a.md` for routing logic.
+
+Always use tabs for indentation.
+```
+
+Create `C:\Temp\agentlint-recall\.github\skills\skill-a.md` with:
+
+```markdown
+# Skill A
+
+Route all auth requests to `.github/skills/skill-b.md`.
+```
+
+Create `C:\Temp\agentlint-recall\.github\skills\skill-b.md` with:
+
+```markdown
+# Skill B
+
+Fallback handler. See `.github/skills/skill-a.md` for routing.
+```
+
+Create `C:\Temp\agentlint-recall\.github\skills\skill-a-duplicate.md` with the **same body as skill-a.md** to trigger AL-DUP01:
+
+```markdown
+# Skill A Copy
+
+Route all auth requests to `.github/skills/skill-b.md`.
+```
+
+Create `C:\Temp\agentlint-recall\.github\skills\skill-c.md` to trigger AL-CONF01 (contradicts copilot-instructions.md):
+
+```markdown
+# Skill C
+
+Never use tabs for indentation. Always use spaces.
+```
+
+Also create `C:\Temp\agentlint-recall\src\auth.py` (makes the INV01 claim false):
+
+```powershell
+New-Item -ItemType Directory -Force -Path C:\Temp\agentlint-recall\src
+New-Item -ItemType File -Force -Path C:\Temp\agentlint-recall\src\auth.py
+```
+
+### Gate 0.3 — Run agentlint against corpus
+
+```powershell
+.venv\Scripts\agentlint.exe C:\Temp\agentlint-recall --format json 2>&1
+```
+
+Capture the full JSON. For each check, verify it fires:
+
+| Check | Expected trigger in corpus | Must fire? |
+|---|---|---|
+| AL-Q01 | "write clean code", "follow best practices", "be helpful", "be professional" | YES |
+| AL-INV01 | "does not have `src/auth.py`" while `src/auth.py` exists | YES |
+| AL-N01 | "90% of the time" with no source pointer on the line or within lookback | YES |
+| AL-N02 | "40 percent" and "20 per cent" with no source pointer | YES |
+| AL-F02 | `[Jump to missing section](#this-heading-does-not-exist)` | YES |
+| AL-D03 | skill-a.md → skill-b.md → skill-a.md (cycle, root-relative paths) | YES |
+| AL-DUP01 | skill-a.md and skill-a-duplicate.md are near-identical SKILL files | YES |
+| AL-CONF01 | copilot-instructions.md says "Always use tabs"; skill-c.md says "Never use tabs" | YES |
+| AL-S01 | No real credential in corpus — verify silence | MUST NOT fire |
+| AL-TOK01 | No `.agentlint.yml` — verify silence | MUST NOT fire |
+| AL-D04 | No `.agentlint.yml` — verify silence | MUST NOT fire |
+
+### Gate 0.4 — Classify each check
+
+For each check that **must fire**: if it does not appear in the JSON violations → 🔴 RED immediately. Do not proceed to Phase 1 for that check — flag it and note what was missing.
+
+For AL-S01, AL-TOK01, AL-D04: if they fire on the corpus → 🔴 RED.
+
+**Only checks that pass Phase 0 proceed to Phase 1. A RED in Phase 0 supersedes all other verdicts.**
+
+### Gate 0.5 — Cleanup corpus
+
+```powershell
+Remove-Item -Recurse -Force C:\Temp\agentlint-recall
+```
+
+---
+
 ## Phase 1 — Select Target Repos
 
 Use the todo list throughout. Mark each phase/gate in-progress before starting.
 
-Find 5 public GitHub repos with known instruction files covering as many adapters as possible. Use web search to identify repos that are:
-1. Public and actively maintained
-2. Known to use: Copilot skills / Cursor rules / Windsurf / Claude Code / Gemini CLI / Aider / Continue
-3. Varied in size and complexity — not trivially small
+Find 3–5 public GitHub repos prioritizing **recall risk and diversity over quality**:
 
-Good search queries:
-- `site:github.com ".github/copilot-instructions.md" stars:>50`
-- `site:github.com ".cursorrules" stars:>100`
-- `site:github.com "CLAUDE.md" site instructions stars:>50`
+1. Prefer repos that are **recently created** (last 12 months) by individual developers — not polished enterprise OSS. These tend to have messier, vaguer instruction files.
+2. Prefer repos that **mix instruction styles** — numbered claims ("our model is 95% accurate"), narrative docs, mixed prose and code blocks.
+3. Cover at least **2 different adapter types** from: Copilot, Cursor, Claude Code, Windsurf, Gemini.
+4. Avoid `stars:>500` repos — they tend to be too well-maintained and will always grade A.
+
+**Start with these known anchor repos** (previously stress-tested — use as fixed baseline before adding new repos):
+
+| Repo | Adapter | Why useful |
+|---|---|---|
+| `microsoft/vscode` | Copilot | Large multi-file Copilot setup; known AL-D02 + AL-N01 behavior from session 23 |
+| `arc42/quality.arc42.org-site` | Claude Code | 10 files, Grade B in session 22; tests AL-D03 + AL-F02 |
+| `PatrickJS/awesome-cursorrules` | Cursor | 1 file; always Grade A — use as negative control |
+
+Then search for 1–2 **additional** repos not in the anchor list to cover new adapters or check gaps:
+- `site:github.com "GEMINI.md" pushed:>2025-01-01 stars:<50`
+- `site:github.com ".windsurfrules" pushed:>2025-01-01 stars:<100`
+- `site:github.com "CLAUDE.md" pushed:>2025-06-01 stars:<50`
 
 For each repo record: `owner/repo`, adapter type, why selected.
 
-**Minimum:** 3 repos across at least 2 different adapter types.  
-**Target:** 5 repos covering Copilot, Cursor, and at least one of Claude/Windsurf/Gemini.
+**Minimum:** 3 repos across at least 2 adapter types.  
+**Target:** 5 repos — prioritize repos with prose-heavy instruction files, numbered statistics, or anchor links.
 
 ---
 
@@ -211,7 +334,125 @@ Work through each check in order. For each check:
 
 ---
 
-## Phase 4 — Cleanup and Verdict
+## Phase 3b — New Check Analysis (v0.6.0 additions)
+
+The following checks were added after Phase 3 was written. Run this phase only when the target argument includes these check IDs or when doing a full release validation. For each check:
+1. Filter JSON violations across all repos
+2. If it fires: verify 2–3 samples by reading the actual file content
+3. If it should be silent (config-driven): verify no violations appear
+
+---
+
+### Check AL-DUP01 — Duplicate Content
+
+**What it should do:** Fire when two SKILL files (or two DISPATCH files) share ≥85% Jaccard similarity on character 3-grams. Stay silent when files are clearly distinct.
+
+**Gate 3b.1:** Does it fire in Phase 0 recall on skill-a.md vs skill-a-duplicate.md? (Must YES.)  
+**Gate 3b.2:** Does it fire on any real repo? (Low expected rate — absence is fine.)  
+**Gate 3b.3:** If it fires on real repos, are the two flagged files genuinely redundant? Read both and judge.
+
+- 🟢 Only fires on genuinely similar files; fast on all repos
+- 🟡 Fires on files that are similar only because they share boilerplate headers
+- 🔴 Fires on every pair of files, or crashes
+
+---
+
+### Check AL-CONF01 — Semantic Conflict
+
+**What it should do:** Fire when two instruction files contain contradictory directives about the same subject ("always use tabs" vs "never use tabs").
+
+**Gate 3b.4:** Does it fire in Phase 0 recall (copilot-instructions.md vs skill-c.md)? (Must YES.)  
+**Gate 3b.5:** Does it fire on any real repo? (Low expected rate — absence is fine.)  
+**Gate 3b.6:** For any real-repo firing: read both lines. Is the contradiction genuine, or a false positive from keyword collision?
+
+- 🟢 Only fires on real cross-file contradictions
+- 🟡 Fires on same-file content or non-conflicting uses of polarity words
+- 🔴 Fires on every file pair, or crashes
+
+---
+
+### Check AL-FRESH01 — Freshness
+
+**What it should do:** Stay **silent** on all repos without a `stale_days:` config (correct — it is opt-in, default disabled). Verify this.
+
+**Gate 3b.7:** Does it stay silent on all test repos? If it fires without config → 🔴 RED immediately.
+
+---
+
+### Check AL-DEP* — Deprecated Patterns
+
+**What it should do:** Stay **silent** on all repos without a `deprecated_patterns:` config list (zero built-in patterns).
+
+**Gate 3b.8:** Does it stay silent on all test repos? If it fires without config → 🔴 RED immediately.
+
+---
+
+### Check AL-ENC01 — Encoding Check
+
+**What it should do:** Error when any instruction file contains non-UTF-8 bytes. Stay silent on clean UTF-8 files (the vast majority).
+
+**Gate 3b.9:** Does it stay silent on all test repos? (Expected — public GitHub repos are almost always UTF-8.)  
+**Gate 3b.10:** Check Phase 0 recall — AL-ENC01 should be silent there too (corpus files are all UTF-8). Silence is correct.
+
+Note: This check cannot be meaningfully stress-tested against public repos without injecting binary content. Flag as **untestable in wild** and rely on unit tests.
+
+---
+
+### Check AL-FM01 — Frontmatter Schema
+
+**What it should do:** Stay **silent** on all repos without `required_frontmatter:` in config (empty list = disabled).
+
+**Gate 3b.11:** Does it stay silent on all test repos? If it fires without config → 🔴 RED immediately.
+
+---
+
+### Check AL-LEN01 — Minimum Content
+
+**What it should do:** Warn when a SKILL file's estimated token count (len/4) is below `min_content_tokens` (default 10). A file with 40+ characters is fine. Only truly empty stubs should fire.
+
+**Gate 3b.12:** Does it fire on any real repo? (Very low expected rate — most real SKILL files are far above 10 tokens.)  
+**Gate 3b.13:** If it fires, read the flagged file. Is it genuinely a stub or empty?
+
+- 🟢 Silent on all normal files; fires only on stubs
+- 🟡 Fires on short-but-valid SKILL files (e.g. a 3-line rule file with 15 tokens)
+- 🔴 Fires on every file, or crashes
+
+---
+
+### `--fix` flag — Auto-Fix Behavior
+
+**What it should do:** Apply in-place fixes only for `AL-S01` (redact secrets), `AL-P*` with `replacement:`, and `AL-DEP*` with `replacement:`. Should never modify files that don't have fixable violations.
+
+**Gate 3b.14:** Run `agentlint C:\Temp\agentlint-recall --fix` against the Phase 0 corpus. Verify no files were modified (the corpus has no AL-S01 or forbidden-pattern-with-replacement violations).
+
+```powershell
+.venv\Scripts\agentlint.exe C:\Temp\agentlint-recall --fix --format text
+```
+
+Then check that no corpus files were changed:
+```powershell
+Get-ChildItem C:\Temp\agentlint-recall -Recurse -File | ForEach-Object { $_.LastWriteTime }
+```
+
+- 🟢 No files modified when there are no fixable violations
+- 🔴 Files modified when they shouldn't be, or crash
+
+---
+
+Add Phase 3b results to the final verdict table:
+
+```
+Check     | P0 Recall | Fires in Wild? | FP Risk      | Verdict    | Notes
+----------|-----------|---------------|--------------|------------|------
+AL-DUP01  | PASS/FAIL | Y/N           | Low/Med/High | 🟢/🟡/🔴 |
+AL-CONF01 | PASS/FAIL | Y/N           | Low/Med/High | 🟢/🟡/🔴 |
+AL-FRESH01| SILENT OK | N(opt)        | N/A          | 🟢/🔴     |
+AL-DEP*   | SILENT OK | N(opt)        | N/A          | 🟢/🔴     |
+AL-ENC01  | SILENT OK | N(untestable) | N/A          | 🟢/🔴     |
+AL-FM01   | SILENT OK | N(opt)        | N/A          | 🟢/🔴     |
+AL-LEN01  | N/A       | Y/N           | Low/Med/High | 🟢/🟡/🔴 |
+--fix     | PASS/FAIL | N/A           | N/A          | 🟢/🔴     |
+```
 
 ### Gate 4.1 — Cleanup
 
@@ -222,35 +463,45 @@ Remove-Item -Recurse -Force C:\Temp\agentlint-stress
 
 ### Gate 4.2 — Final Report
 
-Print the full verdict table:
+Print the full verdict table combining Phase 0 recall results with Phase 1–3 real-world results:
 
 ```
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-AGENTLINT STRESS TEST — REAL-WORLD CHECK BEHAVIOUR
+AGENTLINT STRESS TEST — FULL CHECK BEHAVIOUR REPORT
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+Phase 0 (synthetic recall): PASS / FAIL
 Repos tested: N  |  Adapters covered: X / 7  |  Files scanned: ~N
 
-Check     | Fires? | FP Risk | Verdict | Notes
-----------|--------|---------|---------|------
-AL-S01    | Y/N    | Low/Med/High | 🟢/🟡/🔴 | 
-AL-INV01  | Y/N    | Low/Med/High | 🟢/🟡/🔴 |
-AL-Q01    | Y/N    | Low/Med/High | 🟢/🟡/🔴 |
-AL-F02    | Y/N    | Low/Med/High | 🟢/🟡/🔴 |
-AL-N02    | Y/N    | Low/Med/High | 🟢/🟡/🔴 |
-AL-D03    | Y/N    | Low/Med/High | 🟢/🟡/🔴 |
-AL-TOK01  | N(opt) | N/A     | 🟢/🔴   |
-AL-D04    | N(opt) | N/A     | 🟢/🔴   |
+Check     | P0 Recall | Fires in Wild? | FP Risk      | Verdict    | Notes
+----------|-----------|---------------|--------------|------------|------
+AL-S01    | PASS/FAIL | Y/N           | Low/Med/High | 🟢/🟡/🔴 |
+AL-INV01  | PASS/FAIL | Y/N           | Low/Med/High | 🟢/🟡/🔴 |
+AL-Q01    | PASS/FAIL | Y/N           | Low/Med/High | 🟢/🟡/🔴 |
+AL-F02    | PASS/FAIL | Y/N           | Low/Med/High | 🟢/🟡/🔴 |
+AL-N02    | PASS/FAIL | Y/N           | Low/Med/High | 🟢/🟡/🔴 |
+AL-D03    | PASS/FAIL | Y/N           | Low/Med/High | 🟢/🟡/🔴 |
+AL-TOK01  | SILENT OK | N(opt)        | N/A          | 🟢/🔴     |
+AL-D04    | SILENT OK | N(opt)        | N/A          | 🟢/🔴     |
 
 OVERALL RELEASE CONFIDENCE: 🟢 HIGH / 🟡 MEDIUM / 🔴 LOW
 ```
 
-After the table, for every 🟡 or 🔴 finding: write a specific one-line description of the problem and the exact repo + file + line where it was observed.
+After the table, for every 🟡 or 🔴 finding: write a specific one-line description of the problem and the exact file + line where it was observed.
+
+Then add a mandatory one-line root-cause verdict using exactly one of these labels:
+- `ROOT CAUSE: TOOL ISSUE` (check/adaptor bug, missed coverage, crash, false positive pattern)
+- `ROOT CAUSE: REPO ISSUE` (the repo genuinely violates the rule)
+- `ROOT CAUSE: MIXED` (both tool and repo issues were observed in the same run)
+
+If you use `MIXED`, add a second short line splitting counts, for example:
+`TOOL findings: 1 | REPO findings: 4`.
 
 **Overall confidence rules:**
 - All GREEN → 🟢 HIGH — ship with confidence
 - Any AMBER, no RED → 🟡 MEDIUM — ship but note known false positive patterns in release notes
 - Any RED → 🔴 LOW — do not ship until the red check is fixed
+- Any Phase 0 FAIL → automatic 🔴 LOW, regardless of real-world results
 
 ---
 

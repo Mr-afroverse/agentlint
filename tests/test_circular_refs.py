@@ -191,3 +191,43 @@ def test_d03_deduplicate_cycle(tmp_path: Path):
     violations = run(files, Config(), tmp_path)
     d03 = [v for v in violations if v.check_id == "AL-D03"]
     assert len(d03) == 1
+
+
+# ---------------------------------------------------------------------------
+# AL-D03: file-relative path references (regression for path normalization)
+# ---------------------------------------------------------------------------
+
+
+def test_d03_fail_file_relative_cycle(tmp_path: Path):
+    """Cycle via file-relative backtick path (e.g. `../b/SKILL.md`)."""
+    _write_dispatch(
+        tmp_path,
+        "| a | `.github/skills/a/SKILL.md` | all |\n"
+        "| b | `.github/skills/b/SKILL.md` | all |\n",
+    )
+    # skill-a references skill-b using a path relative to its own directory:
+    # .github/skills/a/ + ../b/SKILL.md → .github/skills/b/SKILL.md
+    _write_skill(tmp_path, "a", "# A\nSee `../b/SKILL.md` for details.\n")
+    # skill-b closes the cycle using a repo-root-relative path
+    _write_skill(tmp_path, "b", "# B\nSee `.github/skills/a/SKILL.md` for details.\n")
+
+    files = _collect(tmp_path)
+    violations = run(files, Config(), tmp_path)
+    d03 = [v for v in violations if v.check_id == "AL-D03"]
+    assert len(d03) == 1
+    assert "circular" in d03[0].message.lower()
+
+
+def test_d03_pass_file_relative_non_instruction(tmp_path: Path):
+    """File-relative ref resolving to a non-instruction file must not cause a cycle."""
+    _write_dispatch(
+        tmp_path,
+        "| a | `.github/skills/a/SKILL.md` | all |\n",
+    )
+    _write_skill(tmp_path, "a", "# A\nSee `../../../README.md` for context.\n")
+    (tmp_path / "README.md").write_text("# Readme\n")
+
+    files = _collect(tmp_path)
+    violations = run(files, Config(), tmp_path)
+    d03 = [v for v in violations if v.check_id == "AL-D03"]
+    assert d03 == []

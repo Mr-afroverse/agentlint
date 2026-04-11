@@ -19,13 +19,21 @@ inputs:
     description: Exit 1 when warnings are present (default false)
     required: false
     default: "false"
+  version:
+    description: instruction-lint version to install (pin for reproducible CI)
+    required: false
+    default: "0.6.0"
+  config:
+    description: Path to .agentlint.yml config file (optional)
+    required: false
+    default: ""
 
 runs:
   using: composite
   steps:
     - name: Install agentlint
       shell: bash
-      run: pip install instruction-lint
+      run: pip install instruction-lint==${{ inputs.version }}
 
     - name: Run agentlint
       shell: bash
@@ -33,5 +41,8 @@ runs:
         ARGS="${{ inputs.path }} --format ${{ inputs.format }} --adapter ${{ inputs.adapter }}"
         if [ "${{ inputs.fail-on-warnings }}" = "true" ]; then
           ARGS="$ARGS --fail-on-warnings"
+        fi
+        if [ -n "${{ inputs.config }}" ]; then
+          ARGS="$ARGS --config ${{ inputs.config }}"
         fi
         agentlint $ARGS

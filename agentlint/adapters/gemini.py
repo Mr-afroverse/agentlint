@@ -9,6 +9,7 @@ from agentlint.models import InstructionFile, Role
 class GeminiAdapter(BaseAdapter):
     """Handles Google Gemini CLI instruction format:
     - GEMINI.md                    (dispatch / global instructions)
+    - <subdir>/GEMINI.md           (per-directory instructions)
     - .gemini/rules/*.md           (per-topic rule files)
     """
 
@@ -32,6 +33,23 @@ class GeminiAdapter(BaseAdapter):
                     adapter=self.name,
                     role=Role.DISPATCH,
                     metadata={},
+                )
+            )
+
+        # Per-directory GEMINI.md files (subdirectories only)
+        for nested in sorted(root.rglob("GEMINI.md")):
+            if nested == dispatch_path:
+                continue  # root GEMINI.md already handled as DISPATCH
+            content, lines = self._read(nested)
+            meta = self._parse_frontmatter(content)
+            files.append(
+                InstructionFile(
+                    path=nested,
+                    content=content,
+                    lines=lines,
+                    adapter=self.name,
+                    role=Role.SKILL,
+                    metadata=meta,
                 )
             )
 

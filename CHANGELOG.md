@@ -2,6 +2,109 @@
 
 All notable changes to agentlint are documented here.
 
+## [0.6.0] — 2026-04-10
+
+### Added
+- **UX-01 `--fix` auto-fix flag** — applies deterministic fixes directly to instruction
+  files without a separate editing step. Violations with a known replacement are marked
+  `auto_fixable=True` and carry `fix_data = {"old_line", "new_line"}`. Three check
+  families now emit auto-fixable violations: `AL-DEP*` (when `replacement:` is
+  supplied in config), `AL-P*` (when `replacement:` is supplied in the forbidden-pattern
+  entry), and `AL-S01` (always — matched secret text is replaced with `<REDACTED>`).
+  The fixer preserves original line endings (`\n` / `\r\n`), handles multi-file
+  batches, skips stale fixes (on-disk line changed since scan), and skips duplicate
+  line-number collisions (first fix wins). `agentlint/fixer.py` is the new
+  standalone fix engine imported lazily only when `--fix` is passed. 21 new tests.
+- **CHECK-11 AL-D02 VS Code auto-discovery suppression** — skills under `.github/skills/`
+  are automatically discovered by VS Code 1.99+ via XML `<skill>` injection and no longer
+  trigger AL-D02 ("skill not referenced in dispatch"). Skills under `.github/instructions/`
+  and other non-auto-discovered paths are unaffected. 4 new dispatch coverage tests updated.
+- **CHECK-02 AL-DEP* deprecated pattern check** — `deprecated_patterns:` config list lets
+  projects flag known-deprecated AI provider models, SDK methods, or API endpoints.
+  Each entry supplies `pattern` (regex), `reason`, `replacement` (optional), `severity`
+  (optional, default `warning`), and `id` (optional, default `AL-DEP<n>`). Runs on SKILL,
+  DISPATCH, and DOCS files. Zero built-in patterns — entirely user-supplied. 12 new tests.
+- **AL-V01 AST-based value extraction** — `_extract_constant_value_ast()` now
+  uses Python's `ast` module for `.py` source files, correctly scoping constant
+  lookups to the named class (`ClassName.ATTR`) or module level. Handles
+  type-annotated assignments (`x: int = 42`), negative literals (`X = -1`),
+  and deeply nested classes (`Outer.Inner.ATTR`). Falls back to regex when the
+  AST cannot resolve the constant (syntax errors, non-numeric values) so no
+  previously-passing file regresses. Non-Python source files continue to use
+  the regex extractor.
+- **AL-V01 negative number support** — `_NUMBER_RE` updated to `(?<!\w)(-?\d+…)`
+  so negative values in docs (e.g. `-1`) are correctly extracted and compared
+  against the source constant. 15 new tests.
+- **AL-FRESH01 `freshness` check** — warns when instruction files contain dates older
+  than a configurable threshold. Supports ISO-8601 (`2024-01-15`), slash-separated
+  (`2024/01/15`), long named-month (`January 15, 2024`), short named-month
+  (`Jan 15, 2024`), and day-first formats (`15 January 2024`). Future dates are never
+  flagged. Lines inside fenced code blocks are skipped. Suppressible per-line with
+  ``# agentlint: disable=AL-FRESH01``. Runs on SKILL, DISPATCH, and DOCS files.
+  Disabled by default (`stale_days: 0`). 20 new tests.
+- **`stale_days` config field** — integer threshold in days for AL-FRESH01 (default 0).
+- **AL-CONF01 `semantic_conflict` check** — warns when two instruction files contain
+  contradictory directives about the same subject (e.g. one says "always use tabs",
+  another says "never use tabs"). Uses polarity word extraction (always/never, use/avoid,
+  must/must not, prefer/don't, etc.) + token-prefix matching so "tabs" matches "tabs for
+  indentation". Cross-file only — same-file contradictions are intentionally skipped.
+  Suppressible per-line with ``# agentlint: disable=AL-CONF01``. Zero-config. 29 tests.
+- **AL-DUP01 `duplicate_content` check** — warns when two instruction files of the same
+  role (SKILL–SKILL or DISPATCH–DISPATCH) share ≥ 85 % Jaccard similarity on character
+  3-grams. Threshold controlled by `duplicate_threshold` in `.agentlint.yml` (default
+  0.85). Set to 0 to disable. Zero-config by default. 25 new tests.
+- **`duplicate_threshold` config field** — float 0.0–1.0, default 0.85, powers AL-DUP01.
+- **AL-D05 `dispatch_coverage` extension** — errors when two or more SKILL files share
+  the same effective name (`name` frontmatter or parent directory name). Fires even
+  when no dispatch file is present. Zero-config.
+- **AL-LEN01 `min_content` check** — warns when a SKILL file's estimated token count
+  falls below `min_content_tokens` (default 10). Catches accidentally empty stub files.
+  Set `min_content_tokens: 0` to disable. Config-driven.
+- **AL-ENC01 `encoding_check` check** — errors when any instruction or docs file
+  contains non-UTF-8 bytes. Reports approximate line number from byte offset.
+  Zero-config — runs on SKILL, DISPATCH, and DOCS files.
+- **AL-FM01 `frontmatter_schema` check** — warns when a SKILL file is missing one or
+  more keys listed in `required_frontmatter` in `.agentlint.yml`. Disabled by default
+  (empty list). Config-driven.
+- **`min_content_tokens` config field** — integer threshold for AL-LEN01 (default 10).
+- **`required_frontmatter` config field** — list of required YAML frontmatter keys
+  for SKILL files. Powers AL-FM01.
+- **CopilotAdapter: `.github/instructions/*.md` support** — VS Code 1.99+ per-file
+  instruction format. Files are collected as SKILL role.
+- **ClaudeCodeAdapter: nested `CLAUDE.md` collection** — `<subdir>/CLAUDE.md` files
+  anywhere under the project root are collected as SKILL role.
+- **GeminiAdapter: nested `GEMINI.md` collection** — `<subdir>/GEMINI.md` files
+  anywhere under the project root are collected as SKILL role.
+- **Adapter unit tests** — `tests/test_cursor.py`, `tests/test_windsurf.py`,
+  `tests/test_aider.py`, `tests/test_continue.py` (10 tests each), and
+  `tests/test_copilot.py` (10 tests). All five previously untested adapters now have
+  isolated unit test coverage.
+- **`action.yml` version pinning** — new `version` input (default `"0.6.0"`) lets CI
+  consumers pin `instruction-lint` to a specific release for reproducibility.
+- **`action.yml` config input** — new optional `config` input passes `--config <path>`
+  to the CLI when set.
+- 173 new tests. Test count: 361 → 534.
+- 24 additional regression tests covering all bug-fix scenarios. Test count: 534 → 572.
+
+### Fixed
+- **`.pre-commit-hooks.yaml` file-type filter** — `types: [markdown]` changed to
+  `types_or: [markdown, yaml]` so the hook also fires on YAML instruction files
+  (e.g. `.aider.conf.yml`).
+
+### Improved
+- **`checks/_utils.py`** — shared `_CODE_FENCE_RE` regex extracted from five
+  duplicate definitions across `file_references`, `dead_anchors`, `vague_instructions`,
+  `value_extraction`, and `number_sourcing`.
+- **`forbidden_patterns.py`** — all patterns are now compiled once before the file
+  loop instead of once per file per pattern.
+- **`number_sourcing.py`** — `_sourced()` helper is now defined once per file
+  (above the line iteration loop) instead of being redefined on every line.
+- **`cli.py` error message** — "no adapter detected" message now lists Claude Code
+  and Gemini paths alongside the existing adapters.
+- **`cli.py` severity override** — two identical inline severity-override loops
+  extracted into a single `_apply_severity_overrides()` helper.
+- **`models.py` adapter comment** — stale literal corrected to list all seven adapters.
+
 ## [0.5.0] — 2026-04-08
 
 ### Added

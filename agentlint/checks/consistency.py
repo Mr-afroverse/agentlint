@@ -45,7 +45,14 @@ def run(
 
         try:
             pat = re.compile(raw_pattern)
-        except re.error:
+        except re.error as exc:
+            import sys
+
+            print(
+                f"[agentlint] Warning: invalid regex in consistency_groups "
+                f"(id={group_id}): {exc}",
+                file=sys.stderr,
+            )
             continue
 
         # Extract values from each existing file

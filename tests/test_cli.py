@@ -40,7 +40,8 @@ def _make_clean_copilot_repo(root: Path) -> None:
     skill_dir = root / ".github" / "skills" / "my-skill"
     skill_dir.mkdir(parents=True)
     (skill_dir / "SKILL.md").write_text(
-        "# My Skill\nWrite tests first.\n", encoding="utf-8"
+        "# My Skill\nWrite tests first. Follow TDD practices and keep coverage high.\n",
+        encoding="utf-8",
     )
     dispatch = "| `my-skill` | `.github/skills/my-skill/SKILL.md` | any feature |\n"
     (root / ".github" / "copilot-instructions.md").write_text(
@@ -853,3 +854,63 @@ def test_init_generated_yml_is_valid_yaml(tmp_path: Path):
     # And Config.load() must not raise
     cfg = Config.load(tmp_path)
     assert cfg is not None
+
+
+# ---------------------------------------------------------------------------
+# UX-01: --fix flag
+# ---------------------------------------------------------------------------
+
+
+def _make_deprecated_pattern_repo(root: Path) -> None:
+    """Copilot repo with a deprecated model that has a replacement (auto-fixable)."""
+    skill_dir = root / ".github" / "skills" / "ai-usage"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "Use gpt-4-0613 for all tasks.\n",
+        encoding="utf-8",
+    )
+    dispatch = "| `ai-usage` | `.github/skills/ai-usage/SKILL.md` | AI tasks |\n"
+    (root / ".github" / "copilot-instructions.md").write_text(
+        dispatch, encoding="utf-8"
+    )
+    (root / ".agentlint.yml").write_text(
+        "deprecated_patterns:\n"
+        "  - pattern: gpt-4-0613\n"
+        "    reason: Deprecated model.\n"
+        "    replacement: gpt-4o\n",
+        encoding="utf-8",
+    )
+
+
+def test_fix_flag_applies_fixes_and_modifies_file(tmp_path: Path):
+    """--fix rewrites the file and removes the fixed violation from output."""
+    _make_deprecated_pattern_repo(tmp_path)
+    skill_file = tmp_path / ".github" / "skills" / "ai-usage" / "SKILL.md"
+
+    result = _RUNNER.invoke(main, ["--fix", str(tmp_path)])
+    # After fixing, no deprecated violations remain → exit 0
+    assert result.exit_code == 0
+    # File is updated
+    assert "gpt-4o" in skill_file.read_text(encoding="utf-8")
+    assert "gpt-4-0613" not in skill_file.read_text(encoding="utf-8")
+
+
+def test_fix_flag_reports_count(tmp_path: Path):
+    """--fix prints the number of violations fixed."""
+    _make_deprecated_pattern_repo(tmp_path)
+    result = _RUNNER.invoke(main, ["--fix", str(tmp_path)])
+    assert "Fixed" in result.output or "Fixed" in (result.output + "")
+
+
+def test_fix_flag_no_fixable_violations_reports_zero(tmp_path: Path):
+    """--fix on a clean repo reports that no auto-fixable violations were found."""
+    _make_clean_copilot_repo(tmp_path)
+    result = _RUNNER.invoke(main, ["--fix", str(tmp_path)])
+    assert result.exit_code == 0
+    assert "No auto-fixable" in result.output
+
+
+def test_fix_flag_appears_in_help():
+    """--fix appears in the --help output."""
+    result = _RUNNER.invoke(main, ["--help"])
+    assert "--fix" in result.output

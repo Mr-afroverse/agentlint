@@ -1,9 +1,9 @@
 - id: agentlint
   name: agentlint
-  description: Audit AI coding assistant instruction files (Copilot skills, Cursor rules, Windsurf rules, Aider conventions, Continue.dev rules)
+  description: Audit AI coding assistant instruction files (Copilot, Cursor, Windsurf, Aider, Continue, Claude Code, Gemini)
   language: python
   entry: agentlint
   pass_filenames: false
   always_run: false
-  types: [markdown]
+  types_or: [markdown, yaml]
   stages: [pre-commit]

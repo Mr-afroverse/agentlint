@@ -9,8 +9,10 @@ from agentlint.models import InstructionFile, Role
 class ClaudeCodeAdapter(BaseAdapter):
     """Handles Claude Code instruction format:
     - CLAUDE.md                    (dispatch / global instructions)
+    - <subdir>/CLAUDE.md           (per-directory instructions, Claude Code v1.0+)
     - .claude/agents/*.md          (sub-agent files)
     - .claude/commands/*.md        (slash-command definitions)
+    - .claude/rules/*.md           (rules/instruction files)
     """
 
     name = "claudecode"
@@ -20,6 +22,7 @@ class ClaudeCodeAdapter(BaseAdapter):
             (root / "CLAUDE.md").exists()
             or (root / ".claude" / "agents").exists()
             or (root / ".claude" / "commands").exists()
+            or (root / ".claude" / "rules").exists()
         )
 
     def collect(self, root: Path) -> list[InstructionFile]:
@@ -37,6 +40,23 @@ class ClaudeCodeAdapter(BaseAdapter):
                     adapter=self.name,
                     role=Role.DISPATCH,
                     metadata={},
+                )
+            )
+
+        # Per-directory CLAUDE.md files (subdirectories only — Claude Code v1.0+)
+        for nested in sorted(root.rglob("CLAUDE.md")):
+            if nested == dispatch_path:
+                continue  # root CLAUDE.md already handled as DISPATCH
+            content, lines = self._read(nested)
+            meta = self._parse_frontmatter(content)
+            files.append(
+                InstructionFile(
+                    path=nested,
+                    content=content,
+                    lines=lines,
+                    adapter=self.name,
+                    role=Role.SKILL,
+                    metadata=meta,
                 )
             )
 
@@ -66,6 +86,23 @@ class ClaudeCodeAdapter(BaseAdapter):
                 files.append(
                     InstructionFile(
                         path=cmd_file,
+                        content=content,
+                        lines=lines,
+                        adapter=self.name,
+                        role=Role.SKILL,
+                        metadata=meta,
+                    )
+                )
+
+        # Rules files (.claude/rules/*.md — SKILL role)
+        rules_dir = root / ".claude" / "rules"
+        if rules_dir.exists():
+            for rule_file in sorted(rules_dir.rglob("*.md")):
+                content, lines = self._read(rule_file)
+                meta = self._parse_frontmatter(content)
+                files.append(
+                    InstructionFile(
+                        path=rule_file,
                         content=content,
                         lines=lines,
                         adapter=self.name,

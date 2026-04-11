@@ -27,6 +27,7 @@ from pathlib import Path
 
 from agentlint.config import Config
 from agentlint.models import InstructionFile, Role, Severity, Violation
+from agentlint.checks._utils import _CODE_FENCE_RE
 
 # ---------------------------------------------------------------------------
 # Vague-phrase pattern catalogue.
@@ -112,9 +113,6 @@ _COMPILED: list[tuple[re.Pattern[str], str]] = [
     (re.compile(pat, re.IGNORECASE), label) for pat, label in _VAGUE_PATTERNS
 ]
 
-# Code fence boundary
-_CODE_FENCE_RE = re.compile(r"^```(?!`)")
-
 # Inline disable comment
 _DISABLE_RE = re.compile(r"agentlint:\s*disable\s*=\s*AL-Q01", re.IGNORECASE)
 
@@ -126,7 +124,7 @@ def run(
 ) -> list[Violation]:
     violations: list[Violation] = []
 
-    for f in [f for f in files if f.role in (Role.SKILL, Role.DISPATCH)]:
+    for f in [_f for _f in files if _f.role in (Role.SKILL, Role.DISPATCH)]:
         normalized = f.path.as_posix()
         if any(ign in normalized for ign in config.ignore_paths):
             continue

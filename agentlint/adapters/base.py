@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import sys
 from abc import ABC, abstractmethod
 from pathlib import Path
 
@@ -44,15 +45,23 @@ class BaseAdapter(ABC):
         if m:
             try:
                 return yaml.safe_load(m.group(1)) or {}
-            except yaml.YAMLError:
-                pass
+            except yaml.YAMLError as exc:
+                print(
+                    f"[agentlint] Warning: malformed YAML in skill frontmatter block "
+                    f"({str(exc)[:80]}) — metadata will be empty.",
+                    file=sys.stderr,
+                )
 
         # Standard frontmatter
         m = re.match(r"^---\n(.*?)\n---", content, re.DOTALL)
         if m:
             try:
                 return yaml.safe_load(m.group(1)) or {}
-            except yaml.YAMLError:
-                pass
+            except yaml.YAMLError as exc:
+                print(
+                    f"[agentlint] Warning: malformed YAML frontmatter "
+                    f"({str(exc)[:80]}) — metadata will be empty.",
+                    file=sys.stderr,
+                )
 
         return {}

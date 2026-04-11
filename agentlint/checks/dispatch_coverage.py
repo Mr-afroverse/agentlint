@@ -1,6 +1,8 @@
 """
 AL-D01  Skill path referenced in dispatch table → must exist on disk.
 AL-D02  SKILL file on disk → must be referenced in dispatch table.
+AL-D05  Two or more SKILL files share the same effective name → one will
+        silently shadow the other in role_coverage checks.
 """
 
 from __future__ import annotations
@@ -27,6 +29,34 @@ def run(
     dispatch_files = [f for f in files if f.role == Role.DISPATCH]
     skill_files = [f for f in files if f.role == Role.SKILL]
 
+    # ---------------------------------------------------------------- AL-D05
+    # Duplicate skill names — runs regardless of dispatch presence.
+    if len(skill_files) >= 2:
+        name_to_files: dict[str, list[InstructionFile]] = {}
+        for sf in skill_files:
+            skill_name = sf.metadata.get("name", sf.path.parent.name)
+            name_to_files.setdefault(skill_name, []).append(sf)
+        for skill_name, dupes in name_to_files.items():
+            if len(dupes) > 1:
+                for sf in dupes:
+                    violations.append(
+                        Violation(
+                            check_id="AL-D05",
+                            severity=Severity.ERROR,
+                            file=sf.path,
+                            line=1,
+                            message=(
+                                f"Duplicate skill name `{skill_name}` across "
+                                f"{len(dupes)} SKILL files — one will shadow "
+                                "the other in role coverage."
+                            ),
+                            fix_hint=(
+                                "Give each skill a unique `name` in its frontmatter "
+                                "or rename its parent directory."
+                            ),
+                        )
+                    )
+
     if not dispatch_files:
         return violations
 
@@ -51,6 +81,10 @@ def run(
     dispatch_text = dispatch.content
     for sf in skill_files:
         rel = sf.path.relative_to(root).as_posix()
+        # VS Code 1.99+ auto-discovers .github/skills/** via XML <skill> injection —
+        # no manual dispatch entry is needed or expected for these files.
+        if rel.startswith(".github/skills/"):
+            continue
         if rel not in dispatch_text:
             skill_name = sf.metadata.get("name", sf.path.parent.name)
             violations.append(

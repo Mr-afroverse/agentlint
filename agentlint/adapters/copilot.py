@@ -8,8 +8,9 @@ from agentlint.models import InstructionFile, Role
 
 class CopilotAdapter(BaseAdapter):
     """Handles GitHub Copilot instruction format:
-    - .github/copilot-instructions.md  (dispatch)
-    - .github/skills/**/SKILL.md       (individual skills)
+    - .github/copilot-instructions.md      (dispatch)
+    - .github/instructions/*.md            (per-file instructions, VS Code 1.99+)
+    - .github/skills/**/SKILL.md           (individual skills)
     """
 
     name = "copilot"
@@ -17,9 +18,11 @@ class CopilotAdapter(BaseAdapter):
     _SKILL_FILENAME = "SKILL.md"
 
     def detect(self, root: Path) -> bool:
-        return (root / ".github" / self._DISPATCH_NAME).exists() or (
-            root / ".github" / "skills"
-        ).exists()
+        return (
+            (root / ".github" / self._DISPATCH_NAME).exists()
+            or (root / ".github" / "skills").exists()
+            or (root / ".github" / "instructions").exists()
+        )
 
     def collect(self, root: Path) -> list[InstructionFile]:
         files: list[InstructionFile] = []
@@ -38,6 +41,23 @@ class CopilotAdapter(BaseAdapter):
                     metadata={},
                 )
             )
+
+        # Per-file instruction files (.github/instructions/*.md — VS Code 1.99+ format)
+        instructions_dir = root / ".github" / "instructions"
+        if instructions_dir.exists():
+            for instr_file in sorted(instructions_dir.rglob("*.md")):
+                content, lines = self._read(instr_file)
+                meta = self._parse_frontmatter(content)
+                files.append(
+                    InstructionFile(
+                        path=instr_file,
+                        content=content,
+                        lines=lines,
+                        adapter=self.name,
+                        role=Role.SKILL,
+                        metadata=meta,
+                    )
+                )
 
         # Skill files
         skills_dir = root / ".github" / "skills"

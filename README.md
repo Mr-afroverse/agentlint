@@ -33,13 +33,15 @@ cd your-project
 agentlint
 ```
 
+> **Note:** `pip install agentlint` also works — it's a thin alias package that installs `instruction-lint`. Both names install the same `agentlint` CLI binary.
+
 Or as a **pre-commit hook** (recommended — runs on every commit, zero maintenance):
 
 ```yaml
 # .pre-commit-config.yaml
 repos:
   - repo: https://github.com/Mr-afroverse/agentlint
-    rev: v0.5.0
+    rev: v0.6.0
     hooks:
       - id: agentlint
 ```
@@ -54,6 +56,7 @@ repos:
 | AL-D02 | Skill file on disk → referenced in dispatch table | Error | ✓ |
 | AL-D03 | No circular references between instruction files | Error | ✓ |
 | AL-D04 | Every required role has at least one SKILL file | Error | — |
+| AL-D05 | No two SKILL files share the same effective name | Error | ✓ |
 | AL-F01 | Source-file paths in skill files → exist on disk | Warning | ✓ |
 | AL-F02 | Internal anchor links (`#section`) → heading exists in same file | Warning | ✓ |
 | AL-N01 | Threshold numbers → have a source pointer | Warning | ✓ |
@@ -66,10 +69,17 @@ repos:
 | AL-TOK01 | Instruction file exceeds configured token budget | Warning | — |
 | AL-E01 | `.env` vs `.env.example` key parity | Error | — |
 | AL-C01 | Cross-file value consistency groups | Error | — |
-| AL-V01 | Documented numeric values → match source constants | Error | — |
+| AL-V01 | Documented numeric values → match source constants | Error | ✓ |
 | AL-G01 | Documentation values → match ground-truth JSON/YAML | Error | — |
+| AL-LEN01 | SKILL file content meets minimum token threshold | Warning | ✓ |
+| AL-ENC01 | Instruction files are valid UTF-8 | Error | ✓ |
+| AL-FM01 | SKILL files contain all required frontmatter keys | Warning | — |
+| AL-DUP01 | No two SKILL (or DISPATCH) files are near-duplicates of each other | Warning | ✓ |
+| AL-CONF01 | No contradictory directives across instruction files | Warning | ✓ |
+| AL-FRESH01 | Dates in instruction files are not older than configured threshold | Warning | — |
+| AL-DEP* | Deprecated AI provider patterns (models, SDK methods, endpoints) | Warning | — |
 
-AL-D01, AL-D02, AL-D03, AL-F01, AL-F02, AL-N01, AL-N02, AL-T01, AL-P*, AL-S01, AL-INV01, and AL-Q01 work out of the box. AL-D04, AL-TOK01, AL-E01, AL-C01, AL-V01, and AL-G01 are config-driven — add rules in `.agentlint.yml` to activate them.
+AL-D01, AL-D02, AL-D03, AL-D05, AL-F01, AL-F02, AL-N01, AL-N02, AL-T01, AL-P*, AL-S01, AL-INV01, AL-Q01, AL-ENC01, AL-DUP01, AL-CONF01, and AL-LEN01 work out of the box. AL-D04, AL-TOK01, AL-FM01, AL-FRESH01, AL-DEP*, AL-E01, AL-C01, AL-V01, and AL-G01 are config-driven — add rules in `.agentlint.yml` to activate them.
 
 ---
 
@@ -77,13 +87,13 @@ AL-D01, AL-D02, AL-D03, AL-F01, AL-F02, AL-N01, AL-N02, AL-T01, AL-P*, AL-S01, A
 
 | Assistant | Monolithic File | Modular Rules Directory | Format Detected |
 |-----------|:---:|:---:|----------------|
-| **GitHub Copilot** | ✓ | ✓ | `.github/copilot-instructions.md` + `.github/skills/**/SKILL.md` |
+| **GitHub Copilot** | ✓ | ✓ | `.github/copilot-instructions.md` + `.github/instructions/*.md` (VS Code 1.99+) + `.github/skills/**/SKILL.md` |
 | **Cursor** | ✓ | ✓ | `.cursorrules` + `.cursor/rules/*.mdc` |
 | **Windsurf** | ✓ | ✓ | `.windsurfrules` + `.windsurf/rules/*.md` |
 | **Aider** | ✓ | ✓ | `.aider.conf.yml` + `.aider/rules/*.md` |
 | **Continue.dev** | ✓ | ✓ | `.continuerules` + `.continue/rules/*.md` |
-| **Claude Code** | ✓ | ✓ | `CLAUDE.md` + `.claude/agents/*.md` + `.claude/commands/*.md` |
-| **Gemini CLI** | ✓ | ✓ | `GEMINI.md` + `.gemini/rules/*.md` |
+| **Claude Code** | ✓ | ✓ | `CLAUDE.md` + `<subdir>/CLAUDE.md` (per-directory) + `.claude/agents/*.md` + `.claude/commands/*.md` + `.claude/rules/*.md` |
+| **Gemini CLI** | ✓ | ✓ | `GEMINI.md` + `<subdir>/GEMINI.md` (per-directory) + `.gemini/rules/*.md` |
 
 Multiple formats can be active at once. `agentlint` auto-detects which are present.
 
@@ -117,7 +127,7 @@ Multiple formats can be active at once. `agentlint` auto-detects which are prese
 > ```
 > agentlint resolves the file, extracts the constant's current value, and errors if they disagree. Plain `(Source: file.py)` annotations (without `:constant`) are handled by AL-N01 as before.
 
-> **AL-V01 limitation:** extraction uses regex, not AST. Computed expressions (`X = BASE * 0.9`), class properties, and runtime-only values will not be extracted. Annotate simple scalar assignments (`THRESHOLD = 30`) for reliable results.
+> **AL-V01 note:** For Python files, extraction uses a full AST parse with class-scope awareness — it correctly resolves module-level constants, class attributes, type-annotated assignments (`THRESHOLD: int = 30`), and simple negative literals (`DEFAULT_SCORE = -1`). Regex extraction is used as a fallback for non-Python files (YAML, JSON, TypeScript, etc.). Computed expressions (`X = BASE * 0.9`), class properties, and runtime-only values cannot be extracted in any language — annotate simple scalar assignments for reliable results.
 
 ---
 
@@ -191,12 +201,16 @@ severity_overrides:
 fail_on_warnings: true
 
 # Paths to skip (substring match on the file path).
-# Each entry is a plain string. An optional `reason` field can be added
-# for self-documentation — it is recorded but not used in output.
+# Each entry is either a plain string (blanket ignore) or a dict.
+# Dict entries support an optional "checks" list for per-check suppression:
+# the file is still collected and all OTHER checks run on it.
 ignore_paths:
   - "archive/"
   - path: "docs/health/"
     reason: "health-check docs are generated and always stale"
+  - path: "CHANGELOG.md"
+    checks: ["dead-anchors"]
+    reason: "Illustrative examples trigger AL-F02 false positives"
 
 # ── v0.2 features ────────────────────────────────────────────
 
@@ -258,6 +272,39 @@ tree_diagram_fenced: true
 # AL-TOK01: warn when a SKILL or DISPATCH file exceeds this estimated token count.
 # Token count is approximated as len(content) / 4 (OpenAI heuristic). 0 = disabled.
 token_budget: 2000
+
+# AL-LEN01: warn when a SKILL file has fewer than this many estimated tokens.
+# Default 10. Set to 0 to disable.
+min_content_tokens: 20
+
+# AL-DUP01: Jaccard similarity threshold for near-duplicate detection (0.0–1.0).
+# Files with similarity >= threshold are flagged. Default 0.85. Set to 0 to disable.
+duplicate_threshold: 0.9
+
+# AL-D04: role names that must each have at least one SKILL file.
+# Role is matched against skill `name` frontmatter or parent directory name.
+required_roles:
+  - "gps-scorer"
+  - "code-reviewer"
+
+# AL-FM01: required frontmatter keys for SKILL files. Empty list = disabled.
+required_frontmatter:
+  - name
+  - description
+
+# AL-DEP*: deprecated AI provider patterns (model names, SDK methods, endpoints).
+deprecated_patterns:
+  - pattern: "gpt-4-0613"
+    reason: "Model deprecated by OpenAI."
+    replacement: "gpt-4o"
+  - pattern: "openai\\.ChatCompletion\\.create"
+    reason: "openai v0.x API — removed in v1.0."
+    replacement: "client.chat.completions.create"
+    severity: error
+
+# AL-FRESH01: warn when dates in instruction files are older than this many days.
+# 0 = disabled (default).
+stale_days: 180
 ```
 
 ### Replace built-in forbidden patterns entirely
@@ -271,6 +318,38 @@ forbidden_patterns:
     fix: "Delete the flag entirely."
     severity: error
 ```
+
+### Check keys reference
+
+Every check can be toggled in `.agentlint.yml` with `checks: {key: false}`. The full set of valid keys:
+
+| Config key | Check ID(s) | Notes |
+|---|---|---|
+| `dispatch-coverage` | AL-D01, AL-D02, AL-D05 | Skill path / dispatch table consistency |
+| `circular-refs` | AL-D03 | No circular backtick-path reference chains |
+| `role-coverage` | AL-D04 | Required roles have at least one SKILL file |
+| `file-references` | AL-F01 | Source-file paths exist on disk |
+| `dead-anchors` | AL-F02 | Internal `#heading` anchors resolve |
+| `number-sourcing` | AL-N01, AL-N02 | Threshold numbers and percentages have source pointers |
+| `value-extraction` | AL-V01 | Documented constants match source code values |
+| `trigger-overlap` | AL-T01 | No two SKILLs share effectively the same trigger |
+| `forbidden-patterns` | AL-P* | Built-in + custom forbidden pattern matches |
+| `deprecated-patterns` | AL-DEP* | Deprecated AI provider models / SDK methods |
+| `secret-detection` | AL-S01 | No credentials or tokens in instruction files |
+| `inverse-claims` | AL-INV01 | Negative existence claims about paths that exist |
+| `vague-instructions` | AL-Q01 | Vague directives without actionable criteria |
+| `semantic-conflict` | AL-CONF01 | Contradictory directives across files |
+| `duplicate-content` | AL-DUP01 | Near-duplicate SKILL or DISPATCH files |
+| `encoding-check` | AL-ENC01 | Files are valid UTF-8 |
+| `frontmatter-schema` | AL-FM01 | Required frontmatter keys present |
+| `min-content` | AL-LEN01 | Files meet minimum token threshold |
+| `token-budget` | AL-TOK01 | Files stay within maximum token budget |
+| `freshness` | AL-FRESH01 | Dates are not older than configured threshold |
+| `config-parity` | AL-E01 | `.env` / `.env.example` key parity |
+| `consistency-groups` | AL-C01 | Cross-file value consistency groups |
+| `ground-truth` | AL-G01 | Values match ground-truth JSON/YAML |
+
+All checks default to **on**. Config-driven checks (AL-D04, AL-TOK01, AL-FM01, AL-FRESH01, AL-DEP*, AL-E01, AL-C01, AL-G01) require additional config keys to produce violations — toggling them without that config has no effect.
 
 ---
 
@@ -298,7 +377,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: Mr-afroverse/agentlint@v0.5.0
+      - uses: Mr-afroverse/agentlint@v0.6.0
 ```
 
 ### Action inputs
@@ -309,11 +388,13 @@ jobs:
 | `format` | `text` | Output format — `text`, `json`, `sarif`, `badge`, or `html` |
 | `adapter` | `auto` | Force adapter — `copilot`, `cursor`, `windsurf`, `aider`, `continue`, `claudecode`, `gemini`, or `auto` |
 | `fail-on-warnings` | `false` | Exit 1 when warnings are present |
+| `version` | `0.6.0` | `instruction-lint` version to install — pin for reproducible CI |
+| `config` | _(empty)_ | Path to `.agentlint.yml` config file (passed as `--config`) |
 
 Example — fail the build on warnings:
 
 ```yaml
-- uses: Mr-afroverse/agentlint@v0.5.0
+- uses: Mr-afroverse/agentlint@v0.6.0
   with:
     fail-on-warnings: true
 ```
@@ -460,6 +541,8 @@ Options:
                                   config).
   --init                          Generate .agentlint.yml and copy
                                   SKILL_HEALTH_CHECK.md into .github/skills/.
+  --fix                           Auto-fix violations that have a deterministic
+                                  fix. Modifies files in-place.
   --baseline PATH                 Suppress violations already recorded in
                                   PATH. Reports only new regressions.
   --update-baseline PATH          Snapshot current violations to PATH and

@@ -40,7 +40,7 @@ def run(
 
     violations: list[Violation] = []
 
-    for f in [f for f in files if f.role in (Role.SKILL, Role.DISPATCH)]:
+    for f in [_f for _f in files if _f.role in (Role.SKILL, Role.DISPATCH)]:
         normalized = f.path.as_posix()
         if any(ign in normalized for ign in config.ignore_paths):
             continue

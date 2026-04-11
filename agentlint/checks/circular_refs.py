@@ -41,29 +41,63 @@ def run(
 
     # Build directed adjacency: abs_path → set[abs_path]
     graph: dict[Path, set[Path]] = {f.path: set() for f in relevant}
+    _root_resolved = root.resolve()
     for f in relevant:
         for m in _BACKTICK_PATH_RE.finditer(f.content):
             ref = m.group(1)
+            target: Path | None = None
+            # 1. Exact repo-root-relative match (most common: `.github/skills/x/SKILL.md`)
             if ref in rel_map:
                 target = rel_map[ref]
-                if target != f.path:
-                    graph[f.path].add(target)
+            else:
+                # 2. Resolve relative to the containing file's parent directory.
+                #    Catches references written as file-relative paths, e.g.
+                #    `../skill-b/SKILL.md` inside `.github/skills/skill-a/SKILL.md`.
+                try:
+                    norm_rel = (
+                        (f.path.parent / ref)
+                        .resolve()
+                        .relative_to(_root_resolved)
+                        .as_posix()
+                    )
+                    target = rel_map.get(norm_rel)
+                except ValueError:
+                    pass
+            if target is not None and target != f.path:
+                graph[f.path].add(target)
 
-    # DFS cycle detection using recursion-stack colouring.
+    # Iterative DFS cycle detection using explicit colour stack.
+    # Avoids Python recursion-limit crashes on deeply nested reference graphs.
     WHITE, GRAY, BLACK = 0, 1, 2
     state: dict[Path, int] = {p: WHITE for p in graph}
-    path: list[Path] = []
     reported: set[frozenset] = set()
 
-    def _dfs(node: Path) -> None:
-        state[node] = GRAY
-        path.append(node)
-        for nb in sorted(graph.get(node, set()), key=str):
+    for start in list(graph.keys()):
+        if state[start] != WHITE:
+            continue
+        # Each stack frame: (node, iterator-over-neighbours, path-so-far)
+        _iter_stack: list[tuple[Path, object, list[Path]]] = [
+            (start, iter(sorted(graph.get(start, set()), key=str)), [])
+        ]
+        state[start] = GRAY
+        _path: list[Path] = [start]
+
+        while _iter_stack:
+            node, nb_iter, _ = _iter_stack[-1]
+            try:
+                nb = next(nb_iter)  # type: ignore[call-overload]
+            except StopIteration:
+                # Finished all neighbours of node — colour BLACK and pop
+                state[node] = BLACK
+                _path.pop()
+                _iter_stack.pop()
+                continue
+
             nb_state = state.get(nb, WHITE)
             if nb_state == GRAY:
-                # Back-edge found — extract cycle.
-                idx = path.index(nb)
-                cycle = path[idx:]
+                # Back-edge: cycle found
+                idx = _path.index(nb)
+                cycle = _path[idx:]
                 key = frozenset(cycle)
                 if key not in reported:
                     reported.add(key)
@@ -82,12 +116,10 @@ def run(
                         )
                     )
             elif nb_state == WHITE and nb in state:
-                _dfs(nb)
-        path.pop()
-        state[node] = BLACK
-
-    for node in list(graph.keys()):
-        if state[node] == WHITE:
-            _dfs(node)
+                state[nb] = GRAY
+                _path.append(nb)
+                _iter_stack.append(
+                    (nb, iter(sorted(graph.get(nb, set()), key=str)), [])
+                )
 
     return violations

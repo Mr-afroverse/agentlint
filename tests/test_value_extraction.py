@@ -12,13 +12,29 @@ Covers:
   - Handles: dotted constant path (ClassName.attr)
   - Handles: type-annotated assignment (attr: int = 30)
   - Handles: multiple annotations on separate lines
+  - AST: module-level constant
+  - AST: class-scoped constant (ClassName.ATTR)
+  - AST: deeply nested class (Outer.Inner.ATTR)
+  - AST: annotated assignment
+  - AST: negative numeric literal
+  - AST: non-numeric constant returns None
+  - AST: syntax error returns None
+  - AST: class not found returns None
+  - Integration: AST correctly scopes class vs module shadowing
+  - Integration: negative constant round-trip via AST
+  - Integration: non-.py file uses regex extractor
+  - Integration: regex fallback fires when AST returns None
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from agentlint.checks.value_extraction import run, _extract_constant_value
+from agentlint.checks.value_extraction import (
+    run,
+    _extract_constant_value,
+    _extract_constant_value_ast,
+)
 from agentlint.config import Config
 from agentlint.models import InstructionFile, Role, Severity
 
@@ -171,3 +187,113 @@ def test_extract_constant_value_typed():
 
 def test_extract_constant_value_missing():
     assert _extract_constant_value("OTHER = 99\n", "MISSING") is None
+
+
+# ===========================================================================
+# AST extractor — unit tests
+# ===========================================================================
+
+
+def test_ast_module_level_int():
+    assert _extract_constant_value_ast("THRESHOLD = 30\n", "THRESHOLD") == "30"
+
+
+def test_ast_module_level_float():
+    assert _extract_constant_value_ast("RATIO = 3.14\n", "RATIO") == "3.14"
+
+
+def test_ast_class_scoped():
+    src = "class Config:\n    LIMIT = 50\n"
+    assert _extract_constant_value_ast(src, "Config.LIMIT") == "50"
+
+
+def test_ast_nested_class():
+    src = "class Outer:\n    class Inner:\n        VALUE = 7\n"
+    assert _extract_constant_value_ast(src, "Outer.Inner.VALUE") == "7"
+
+
+def test_ast_annotated_assignment():
+    src = "class Cfg:\n    score: int = 42\n"
+    assert _extract_constant_value_ast(src, "Cfg.score") == "42"
+
+
+def test_ast_negative_literal():
+    assert _extract_constant_value_ast("OFFSET = -5\n", "OFFSET") == "-5"
+
+
+def test_ast_non_numeric_returns_none():
+    assert _extract_constant_value_ast('NAME = "hello"\n', "NAME") is None
+
+
+def test_ast_syntax_error_returns_none():
+    assert _extract_constant_value_ast("def broken(\n", "X") is None
+
+
+def test_ast_class_not_found_returns_none():
+    src = "THRESHOLD = 30\n"
+    assert _extract_constant_value_ast(src, "NonExistent.THRESHOLD") is None
+
+
+def test_ast_attr_not_found_returns_none():
+    src = "class Config:\n    OTHER = 99\n"
+    assert _extract_constant_value_ast(src, "Config.MISSING") is None
+
+
+# ===========================================================================
+# Integration: AST scope-awareness
+# ===========================================================================
+
+
+def test_v01_ast_class_scoped_correct(tmp_path: Path):
+    """AST correctly reads class-level constant, not a module-level shadow."""
+    src = "LIMIT = 99\n\nclass Config:\n    LIMIT = 50\n"
+    (tmp_path / "config.py").write_text(src, encoding="utf-8")
+    content = "limit is 50  (Source: config.py:Config.LIMIT)"
+    sf = _make_file(tmp_path, content)
+    assert run([sf], Config(), tmp_path) == []
+
+
+def test_v01_ast_class_scoped_mismatch(tmp_path: Path):
+    """Docs say 99 but class-level value is 50 — error fires."""
+    src = "LIMIT = 99\n\nclass Config:\n    LIMIT = 50\n"
+    (tmp_path / "config.py").write_text(src, encoding="utf-8")
+    content = "limit is 99  (Source: config.py:Config.LIMIT)"
+    sf = _make_file(tmp_path, content)
+    violations = run([sf], Config(), tmp_path)
+    assert len(violations) == 1
+    assert violations[0].severity == Severity.ERROR
+    assert "50" in violations[0].message
+
+
+def test_v01_ast_negative_roundtrip(tmp_path: Path):
+    """Negative constant is extracted correctly and matches docs."""
+    (tmp_path / "config.py").write_text("MIN_DELTA = -1\n", encoding="utf-8")
+    content = "min delta: -1  (Source: config.py:MIN_DELTA)"
+    sf = _make_file(tmp_path, content)
+    assert run([sf], Config(), tmp_path) == []
+
+
+def test_v01_non_python_uses_regex(tmp_path: Path):
+    """Non-.py source file (e.g. .yaml) uses regex extractor — still works."""
+    (tmp_path / "config.yaml").write_text("LIMIT: 50\n", encoding="utf-8")
+    content = "limit is 50  (Source: config.yaml:LIMIT)"
+    cfg = Config()
+    cfg.source_roots = ["."]
+    sf = _make_file(tmp_path, content)
+    # YAML regex won't find "LIMIT = 50" style — it returns None → warning.
+    # This confirms the non-Python path is taken (no crash, graceful warn).
+    violations = run([sf], cfg, tmp_path)
+    # YAML uses `key: value` not `key = value`, so regex gets None → warning
+    assert len(violations) == 1
+    assert violations[0].severity == Severity.WARNING
+    assert "Could not extract" in violations[0].message
+
+
+def test_v01_ast_fallback_to_regex_on_syntax_error(tmp_path: Path):
+    """When AST fails (syntax error in source), regex fallback runs."""
+    # File has a syntax error but still contains a parseable constant via regex
+    (tmp_path / "broken.py").write_text("LIMIT = 42\ndef broken(\n", encoding="utf-8")
+    content = "limit: 42  (Source: broken.py:LIMIT)"
+    sf = _make_file(tmp_path, content)
+    # AST will fail → regex fallback finds LIMIT = 42 → pass
+    assert run([sf], Config(), tmp_path) == []

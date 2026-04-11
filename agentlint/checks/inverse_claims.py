@@ -94,7 +94,13 @@ def run(
                 if not (before_hit or after_hit):
                     continue
 
-                if (root / token).exists():
+                candidate = root / token
+                try:
+                    if not candidate.resolve().is_relative_to(root.resolve()):
+                        continue  # path escapes root — skip filesystem probe
+                except OSError:
+                    continue
+                if candidate.exists():
                     violations.append(
                         Violation(
                             check_id="AL-INV01",

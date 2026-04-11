@@ -15,3 +15,14 @@ _check_wheel.py
 # Coverage reports
 .coverage
 htmlcov/
+
+# Local release validation artifacts
+dist-check/
+agentlint-badge.svg
+agentlint-report.html
+agentlint.sarif
+
+# Private operating documents — never publish
+AGENT_STATE.md
+archive/
+reports/

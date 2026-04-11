@@ -24,13 +24,20 @@ from agentlint.adapters.windsurf import WindsurfAdapter
 from agentlint.checks import (
     circular_refs,
     dead_anchors,
+    deprecated_patterns,
     dispatch_coverage,
+    duplicate_content,
+    encoding_check,
     file_references,
     forbidden_patterns,
+    freshness,
+    frontmatter_schema,
     inverse_claims,
+    min_content,
     number_sourcing,
     role_coverage,
     secret_detection,
+    semantic_conflict,
     token_budget,
     trigger_overlap,
     vague_instructions,
@@ -38,7 +45,7 @@ from agentlint.checks import (
 )
 from agentlint.checks import config_parity, consistency, ground_truth
 from agentlint.config import Config
-from agentlint.models import InstructionFile, LintResult, Role
+from agentlint.models import InstructionFile, LintResult, Role, Severity
 from agentlint import report as rep
 
 _ADAPTERS = [
@@ -53,6 +60,7 @@ _ADAPTERS = [
 # Unique checks — each function runs once per adapter.
 _UNIQUE_CHECKS = [
     ("dispatch-coverage", dispatch_coverage.run),
+    ("deprecated-patterns", deprecated_patterns.run),
     ("circular-refs", circular_refs.run),
     ("role-coverage", role_coverage.run),
     ("file-references", file_references.run),
@@ -65,6 +73,12 @@ _UNIQUE_CHECKS = [
     ("dead-anchors", dead_anchors.run),
     ("vague-instructions", vague_instructions.run),
     ("token-budget", token_budget.run),
+    ("encoding-check", encoding_check.run),
+    ("min-content", min_content.run),
+    ("frontmatter-schema", frontmatter_schema.run),
+    ("duplicate-content", duplicate_content.run),
+    ("semantic-conflict", semantic_conflict.run),
+    ("freshness", freshness.run),
 ]
 
 # File extensions that can contain instruction content worth watching.
@@ -75,10 +89,13 @@ _WATCH_EXTENSIONS = frozenset({".md", ".mdc", ".yml", ".yaml"})
 _DOCS_CHECKS = [
     ("file-references", file_references.run),
     ("forbidden-patterns", forbidden_patterns.run),
+    ("deprecated-patterns", deprecated_patterns.run),
     ("value-extraction", value_extraction.run),
     ("secret-detection", secret_detection.run),
     ("inverse-claims", inverse_claims.run),
     ("dead-anchors", dead_anchors.run),
+    ("encoding-check", encoding_check.run),
+    ("freshness", freshness.run),
 ]
 
 # Standalone checks driven entirely by config (not by adapter-collected files).
@@ -87,6 +104,14 @@ _STANDALONE_CHECKS = [
     ("consistency-groups", consistency.run),
     ("ground-truth", ground_truth.run),
 ]
+
+
+def _apply_severity_overrides(violations: list, overrides: dict) -> None:
+    """Mutate violation severities according to config severity_overrides."""
+    for v in violations:
+        if v.check_id in overrides:
+            new_sev = overrides[v.check_id]
+            v.severity = Severity.ERROR if new_sev == "error" else Severity.WARNING
 
 
 def _rel_str(p: Path, root: Path) -> str:
@@ -99,18 +124,35 @@ def _rel_str(p: Path, root: Path) -> str:
 
 def _collect_extra(
     root: Path, config: Config, already: set[Path]
-) -> list[InstructionFile]:
-    """Glob extra_paths, dedup against *already*-collected files, return DOCS-role files."""
+) -> tuple[list[InstructionFile], dict[Path, set[str]]]:
+    """Glob extra_paths, dedup against *already*-collected files, return DOCS-role files.
+
+    Returns a tuple of (files, suppressed) where *suppressed* maps a resolved
+    file Path to the set of check keys that are suppressed for that file.
+    Files whose ignore_paths entry has a "checks" sub-key are collected but
+    tagged; files without a "checks" sub-key are blanket-ignored (skipped).
+    """
     extra: list[InstructionFile] = []
+    suppressed: dict[Path, set[str]] = {}
     for pattern in config.extra_paths:
         for path in sorted(root.glob(pattern)):
             resolved = path.resolve()
             if not path.is_file() or resolved in already:
                 continue
             # Respect ignore_paths
-            rel = path.relative_to(root).as_posix()
-            if any(ign in rel for ign in config.ignore_paths):
+            try:
+                rel = path.relative_to(root).as_posix()
+            except ValueError:
+                # Symlink or glob result that resolves outside root — skip.
                 continue
+            matched_ign = next((ign for ign in config.ignore_paths if ign in rel), None)
+            if matched_ign is not None:
+                if matched_ign not in config.ignore_checks:
+                    # Blanket ignore — skip collection entirely.
+                    continue
+                # Per-check suppression — collect the file but record which
+                # checks should not run against it.
+                suppressed[resolved] = set(config.ignore_checks[matched_ign])
             already.add(resolved)
             try:
                 content = path.read_text(encoding="utf-8", errors="replace")
@@ -126,7 +168,7 @@ def _collect_extra(
                     metadata={},
                 )
             )
-    return extra
+    return extra, suppressed
 
 
 def _collect_and_lint(
@@ -150,13 +192,20 @@ def _collect_and_lint(
 
     # Extra paths — run only docs-safe checks (AL-P*, AL-F01, AL-V01)
     if config.extra_paths:
-        extra_files = _collect_extra(root, config, already_seen)
+        extra_files, suppressed = _collect_extra(root, config, already_seen)
         total_files += len(extra_files)
         for f in extra_files:
             scanned_paths.append(f.path)
         for check_key, check_fn in _DOCS_CHECKS:
             if config.checks.get(check_key, True):
-                all_violations.extend(check_fn(extra_files, config, root))
+                # Filter out files where this specific check is suppressed.
+                filtered_files = [
+                    f
+                    for f in extra_files
+                    if check_key not in suppressed.get(f.path.resolve(), set())
+                ]
+                if filtered_files:
+                    all_violations.extend(check_fn(filtered_files, config, root))
 
     # Standalone config-driven checks (AL-E01, AL-C01, AL-G01)
     for check_key, check_fn in _STANDALONE_CHECKS:
@@ -232,6 +281,13 @@ def _collect_and_lint(
     type=click.Path(),
     help="Snapshot current violations to PATH and exit 0.",
 )
+@click.option(
+    "--fix",
+    "apply_fix",
+    is_flag=True,
+    default=False,
+    help="Auto-fix violations that have a deterministic fix. Modifies files in-place.",
+)
 def main(
     path: str,
     output_format: str | None,
@@ -242,6 +298,7 @@ def main(
     watch: bool,
     baseline_path: str | None,
     update_baseline_path: str | None,
+    apply_fix: bool,
 ) -> None:
     """agentlint — audit AI coding assistant instruction files.
 
@@ -283,12 +340,7 @@ def main(
 
     # Apply per-check severity overrides from config
     if config.severity_overrides:
-        for v in all_violations:
-            if v.check_id in config.severity_overrides:
-                from agentlint.models import Severity as _Sev
-
-                new_sev = config.severity_overrides[v.check_id]
-                v.severity = _Sev.ERROR if new_sev == "error" else _Sev.WARNING
+        _apply_severity_overrides(all_violations, config.severity_overrides)
 
     # Guard: exit 2 when nothing was collected — covers both "no adapter matched"
     # in auto mode, and "adapter named but repo has no instruction files yet".
@@ -299,8 +351,10 @@ def main(
                 "[agentlint] No supported instruction format detected.\n"
                 "  Looked for: .github/copilot-instructions.md, .cursorrules, .cursor/rules/,"
                 " .windsurfrules, .windsurf/rules/, .aider.conf.yml, .aider/rules/,"
-                " .continuerules, .continue/rules/\n"
-                "  Use --adapter copilot/cursor/windsurf/aider/continue to force.",
+                " .continuerules, .continue/rules/, CLAUDE.md, .claude/,"
+                " GEMINI.md, .gemini/\n"
+                "  Use --adapter copilot/cursor/windsurf/aider/continue/claudecode/gemini"
+                " to force.",
                 err=True,
             )
         else:
@@ -318,6 +372,29 @@ def main(
         adapter="+".join(a.name for a in active),
         scanned_files=[_rel_str(p, root) for p in scanned_paths],
     )
+
+    # --fix: apply auto-fixes before any output or baseline logic
+    if apply_fix:
+        from agentlint.fixer import apply_fixes
+
+        applied, skipped = apply_fixes(result.violations, root)
+        fixed_ids = {id(v) for v in applied}
+        remaining = [v for v in result.violations if id(v) not in fixed_ids]
+        result = LintResult(
+            root=result.root,
+            files_scanned=result.files_scanned,
+            violations=remaining,
+            adapter=result.adapter,
+            scanned_files=result.scanned_files,
+        )
+        if applied:
+            click.echo(
+                f"[agentlint] Fixed {len(applied)} violation(s). "
+                f"{len(remaining)} remaining.",
+                err=True,
+            )
+        else:
+            click.echo("[agentlint] No auto-fixable violations found.", err=True)
 
     # --update-baseline: snapshot and exit before any filtering or output
     if update_baseline_path:
@@ -388,6 +465,11 @@ def _load_baseline(path: Path) -> set[tuple[str, str, str]]:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
+        click.echo(
+            f"[agentlint] Warning: could not read baseline '{path}' "
+            "— treating all violations as new.",
+            err=True,
+        )
         return set()
     return {
         (v["check_id"], v["file"], v["message"])
@@ -522,12 +604,7 @@ def _watch_loop(root: Path, active: list, config: Config) -> None:
         total_files, all_violations, scanned = _collect_and_lint(root, active, config)
         # Apply severity overrides — mirrors the logic in main()
         if config.severity_overrides:
-            from agentlint.models import Severity as _Sev
-
-            for v in all_violations:
-                if v.check_id in config.severity_overrides:
-                    new_sev = config.severity_overrides[v.check_id]
-                    v.severity = _Sev.ERROR if new_sev == "error" else _Sev.WARNING
+            _apply_severity_overrides(all_violations, config.severity_overrides)
         result = LintResult(
             root=root,
             files_scanned=total_files,

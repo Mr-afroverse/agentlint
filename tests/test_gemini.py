@@ -72,3 +72,42 @@ def test_gemini_collect_both(tmp_path: Path):
 def test_gemini_collect_empty(tmp_path: Path):
     files = _ADAPTER.collect(tmp_path)
     assert files == []
+
+
+# ---------------------------------------------------------------------------
+# collect() — nested GEMINI.md in subdirectories (SKILL)
+# ---------------------------------------------------------------------------
+
+
+def test_gemini_collect_nested_gemini_md_as_skill(tmp_path: Path):
+    (tmp_path / "GEMINI.md").write_text("# Global", encoding="utf-8")
+    subdir = tmp_path / "backend"
+    subdir.mkdir()
+    (subdir / "GEMINI.md").write_text("# Backend instructions", encoding="utf-8")
+    files = _ADAPTER.collect(tmp_path)
+    dispatch = [f for f in files if f.role.value == "dispatch"]
+    skills = [f for f in files if f.role.value == "skill"]
+    assert len(dispatch) == 1
+    assert len(skills) == 1
+    assert skills[0].path == subdir / "GEMINI.md"
+
+
+def test_gemini_collect_multiple_nested_gemini_mds(tmp_path: Path):
+    (tmp_path / "GEMINI.md").write_text("# Global", encoding="utf-8")
+    for name in ("frontend", "backend"):
+        d = tmp_path / name
+        d.mkdir()
+        (d / "GEMINI.md").write_text(f"# {name}", encoding="utf-8")
+    files = _ADAPTER.collect(tmp_path)
+    assert len([f for f in files if f.role.value == "skill"]) == 2
+    assert len([f for f in files if f.role.value == "dispatch"]) == 1
+
+
+def test_gemini_collect_nested_without_root(tmp_path: Path):
+    # No root GEMINI.md — nested one is still collected as SKILL
+    subdir = tmp_path / "src"
+    subdir.mkdir()
+    (subdir / "GEMINI.md").write_text("# Src instructions", encoding="utf-8")
+    files = _ADAPTER.collect(tmp_path)
+    assert len(files) == 1
+    assert files[0].role.value == "skill"
