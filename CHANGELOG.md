@@ -2,6 +2,20 @@
 
 All notable changes to agentlint are documented here.
 
+## [0.6.1] — 2026-04-11
+
+### Fixed
+- **AL-D05 violation flood** — previously fired once per *file* in a duplicate-name
+  group, producing hundreds of identical violations on repos with deeply nested skill
+  structures (e.g. 570 on `ruvnet/agentic-flow`). Now fires once per *group*, with the
+  single violation listing all other files that share the same name. Reduces noise
+  dramatically while preserving full information.
+- **AL-N01 / AL-N02 scope** — percentage and numeric-threshold checks previously ran
+  only on SKILL files, silently skipping repos that have no SKILL files (dispatch-only
+  layout, e.g. `github/awesome-copilot`). Both checks now run on DISPATCH files too.
+
+---
+
 ## [0.6.0] — 2026-04-10
 
 ### Added

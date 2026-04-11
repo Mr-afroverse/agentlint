@@ -123,9 +123,9 @@ def test_d05_fires_when_two_skills_share_name(tmp_path: Path):
     files = _collect(tmp_path)
     violations = run(files, Config(), tmp_path)
     d05 = [v for v in violations if v.check_id == "AL-D05"]
-    assert len(d05) == 2
-    assert all(v.check_id == "AL-D05" for v in d05)
+    assert len(d05) == 1
     assert "shared-name" in d05[0].message
+    assert "SKILL.md" in d05[0].message
 
 
 def test_d05_uses_parent_dir_name_when_no_frontmatter(tmp_path: Path):
@@ -155,7 +155,7 @@ def test_d05_fires_without_dispatch_file(tmp_path: Path):
     files = _collect(tmp_path)
     violations = run(files, Config(), tmp_path)
     d05 = [v for v in violations if v.check_id == "AL-D05"]
-    assert len(d05) == 2
+    assert len(d05) == 1
 
 
 # ---------------------------------------------------------------------------

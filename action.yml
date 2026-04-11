@@ -22,7 +22,7 @@ inputs:
   version:
     description: instruction-lint version to install (pin for reproducible CI)
     required: false
-    default: "0.6.0"
+    default: "0.6.1"
   config:
     description: Path to .agentlint.yml config file (optional)
     required: false

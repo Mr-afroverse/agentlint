@@ -38,24 +38,24 @@ def run(
             name_to_files.setdefault(skill_name, []).append(sf)
         for skill_name, dupes in name_to_files.items():
             if len(dupes) > 1:
-                for sf in dupes:
-                    violations.append(
-                        Violation(
-                            check_id="AL-D05",
-                            severity=Severity.ERROR,
-                            file=sf.path,
-                            line=1,
-                            message=(
-                                f"Duplicate skill name `{skill_name}` across "
-                                f"{len(dupes)} SKILL files — one will shadow "
-                                "the other in role coverage."
-                            ),
-                            fix_hint=(
-                                "Give each skill a unique `name` in its frontmatter "
-                                "or rename its parent directory."
-                            ),
-                        )
+                sorted_dupes = sorted(dupes, key=lambda s: str(s.path))
+                other_paths = ", ".join(f"`{sf.path.name}`" for sf in sorted_dupes[1:])
+                violations.append(
+                    Violation(
+                        check_id="AL-D05",
+                        severity=Severity.ERROR,
+                        file=sorted_dupes[0].path,
+                        line=1,
+                        message=(
+                            f"Duplicate skill name `{skill_name}` — also used by "
+                            f"{other_paths}. One will shadow the other in role coverage."
+                        ),
+                        fix_hint=(
+                            "Give each skill a unique `name` in its frontmatter "
+                            "or rename its parent directory."
+                        ),
                     )
+                )
 
     if not dispatch_files:
         return violations

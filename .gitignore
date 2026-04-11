@@ -5,6 +5,7 @@ dist/
 build/
 .venv/
 .pytest_cache/
+.mypy_cache/
 *.db
 *.db-journal
 
@@ -22,7 +23,16 @@ agentlint-badge.svg
 agentlint-report.html
 agentlint.sarif
 
+# IDE and OS artifacts
+.vscode/
+.idea/
+.DS_Store
+
 # Private operating documents — never publish
 AGENT_STATE.md
 archive/
 reports/
+
+# Personal dev tooling — agents and hooks are maintainer-only, path-specific
+.github/agents/
+.github/hooks/

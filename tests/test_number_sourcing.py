@@ -134,3 +134,15 @@ def test_n02_symbol_percent_fires_n01_not_n02(tmp_path: Path):
     violations = run(files, Config(), tmp_path)
     assert [v for v in violations if v.check_id == "AL-N01"]
     assert [v for v in violations if v.check_id == "AL-N02"] == []
+
+
+def test_n01_fires_on_dispatch_file(tmp_path: Path):
+    # AL-N01 must fire on DISPATCH files, not only SKILL files
+    (tmp_path / ".github").mkdir(parents=True)
+    (tmp_path / ".github" / "copilot-instructions.md").write_text(
+        "The score must be ≥ 90% to pass.\n", encoding="utf-8"
+    )
+    files = _ADAPTER.collect(tmp_path)
+    violations = run(files, Config(), tmp_path)
+    n01 = [v for v in violations if v.check_id == "AL-N01"]
+    assert len(n01) >= 1

@@ -41,7 +41,7 @@ Or as a **pre-commit hook** (recommended — runs on every commit, zero maintena
 # .pre-commit-config.yaml
 repos:
   - repo: https://github.com/Mr-afroverse/agentlint
-    rev: v0.6.0
+    rev: v0.6.1
     hooks:
       - id: agentlint
 ```
@@ -377,7 +377,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: Mr-afroverse/agentlint@v0.6.0
+      - uses: Mr-afroverse/agentlint@v0.6.1
 ```
 
 ### Action inputs
@@ -388,13 +388,13 @@ jobs:
 | `format` | `text` | Output format — `text`, `json`, `sarif`, `badge`, or `html` |
 | `adapter` | `auto` | Force adapter — `copilot`, `cursor`, `windsurf`, `aider`, `continue`, `claudecode`, `gemini`, or `auto` |
 | `fail-on-warnings` | `false` | Exit 1 when warnings are present |
-| `version` | `0.6.0` | `instruction-lint` version to install — pin for reproducible CI |
+| `version` | `0.6.1` | `instruction-lint` version to install — pin for reproducible CI |
 | `config` | _(empty)_ | Path to `.agentlint.yml` config file (passed as `--config`) |
 
 Example — fail the build on warnings:
 
 ```yaml
-- uses: Mr-afroverse/agentlint@v0.6.0
+- uses: Mr-afroverse/agentlint@v0.6.1
   with:
     fail-on-warnings: true
 ```

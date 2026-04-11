@@ -1,11 +1,12 @@
 """
-AL-N01  Lines in skill files that contain threshold / percentage numbers should
-        carry a source pointer so future readers know where the value came from.
+AL-N01  Lines in skill and dispatch files that contain threshold / percentage
+        numbers should carry a source pointer so future readers know where the
+        value came from.
 
-AL-N02  Lines in skill files that contain a written-out percentage claim
-        ("N percent", "N per cent") without a source pointer.  Same lookback
-        and source-marker logic as AL-N01; fired as a separate check ID so
-        teams can toggle it independently.
+AL-N02  Lines in skill and dispatch files that contain a written-out percentage
+        claim ("N percent", "N per cent") without a source pointer.  Same
+        lookback and source-marker logic as AL-N01; fired as a separate check
+        ID so teams can toggle it independently.
 
 A source pointer is satisfied when:
   a) The same line matches any configured source marker, OR
@@ -46,7 +47,7 @@ def run(
     lookback = config.number_source_lookback
     violations: list[Violation] = []
 
-    for sf in [f for f in files if f.role == Role.SKILL]:
+    for sf in [f for f in files if f.role in (Role.SKILL, Role.DISPATCH)]:
         lines = sf.lines
         in_code = False
 
