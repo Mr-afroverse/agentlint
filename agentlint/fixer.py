@@ -23,6 +23,7 @@ import click
 
 from agentlint.models import Violation
 
+
 def apply_fixes(
     violations: list[Violation],
     root: Path,
@@ -101,7 +102,7 @@ def apply_fixes(
         # Apply pending changes.
         for lineno, old_text, new_text, v in pending:
             # Preserve the original line ending.
-            ending = lines[lineno - 1][len(old_text):]
+            ending = lines[lineno - 1][len(old_text) :]
             lines[lineno - 1] = new_text + ending
             applied.append(v)
             click.echo(f"  line {lineno}:  - {old_text}")
