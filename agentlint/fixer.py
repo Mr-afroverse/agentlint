@@ -23,7 +23,6 @@ import click
 
 from agentlint.models import Violation
 
-
 def apply_fixes(
     violations: list[Violation],
     root: Path,
@@ -53,7 +52,7 @@ def apply_fixes(
 
     for file_path, file_violations in by_file.items():
         try:
-            raw = file_path.read_text(encoding="utf-8")
+            raw = file_path.read_text(encoding="utf-8", newline="")
         except OSError:
             skipped += len(file_violations)
             continue
@@ -101,12 +100,12 @@ def apply_fixes(
         # Apply pending changes.
         for lineno, old_text, new_text, v in pending:
             # Preserve the original line ending.
-            ending = lines[lineno - 1][len(old_text) :]
+            ending = lines[lineno - 1][len(old_text):]
             lines[lineno - 1] = new_text + ending
             applied.append(v)
             click.echo(f"  line {lineno}:  - {old_text}")
             click.echo(f"            + {new_text}")
 
-        file_path.write_text("".join(lines), encoding="utf-8")
+        file_path.write_text("".join(lines), encoding="utf-8", newline="")
 
     return applied, skipped
