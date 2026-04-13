@@ -52,7 +52,8 @@ def apply_fixes(
 
     for file_path, file_violations in by_file.items():
         try:
-            raw = file_path.read_text(encoding="utf-8", newline="")
+            with file_path.open("r", encoding="utf-8", newline="") as fh:
+                raw = fh.read()
         except OSError:
             skipped += len(file_violations)
             continue
@@ -106,6 +107,7 @@ def apply_fixes(
             click.echo(f"  line {lineno}:  - {old_text}")
             click.echo(f"            + {new_text}")
 
-        file_path.write_text("".join(lines), encoding="utf-8", newline="")
+        with file_path.open("w", encoding="utf-8", newline="") as fh:
+            fh.write("".join(lines))
 
     return applied, skipped
